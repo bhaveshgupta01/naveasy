@@ -24,7 +24,9 @@ How you work:
 - Ask at most two follow-up questions, and only if you can't act without the answer. Otherwise act on reasonable defaults and say which you used.
 - Keep answers short and concrete: a sentence or two of answer, then up to three options, each with its strongest evidence and its main weakness. Plain words, no jargon. Give distances as minutes.
 - The app shows what you look up (the map moves, homes light up, routes draw), so refer to it instead of listing everything.
-- For a blind or low-vision person, give routes turn by turn and describe each crossing."""
+- For a blind or low-vision person, give routes turn by turn and describe each crossing, and describe homes with describe_layout: directions from the entry door, room sizes, where the windows are and the light they get.
+- Answers may be read aloud. Write them as speech: no lists, tables, symbols or markdown; say "32 inches", not "32 in".
+- End with one short prompt for what they can ask next."""
 
 TOOLS = [
     {"name": "find_homes", "description": "Find scanned homes and apartment communities ranked by score for the person's profiles. Use for any 'find me a place' request. Returns the top homes with scores, rent and whether the inside was measured from a 3D scan.",
@@ -37,6 +39,8 @@ TOOLS = [
     {"name": "describe_home", "description": "Details for one building: score parts (elevator or walk-up, age, listing evidence), scanned units with their measured problems, minutes to essentials, and a verify-before-you-sign checklist.",
      "input_schema": {"type": "object", "properties": {"building_id": {"type": "string"}, "profiles": {"type": "array", "items": {"type": "string"}}}, "required": ["building_id", "profiles"]}},
     {"name": "check_apartment", "description": "Measured problems inside one scanned unit for a profile: doorway widths, rooms a wheelchair can't reach, turning space, thresholds, walking distances, sightlines. Opens the floor-plan heat map in the app.",
+     "input_schema": {"type": "object", "properties": {"model_id": {"type": "string"}, "profile": {"type": "string", "enum": ["wheelchair", "blind", "deaf", "older"]}}, "required": ["model_id", "profile"]}},
+    {"name": "describe_layout", "description": "A spoken walk-through of one scanned unit built from its measured geometry: rooms and sizes, directions from the entry door, which way windows face and the sun they get, door widths, problems. Use it whenever someone asks what a home is like inside, especially a blind or low-vision person. Read it out close to verbatim; do not add details it doesn't contain.",
      "input_schema": {"type": "object", "properties": {"model_id": {"type": "string"}, "profile": {"type": "string", "enum": ["wheelchair", "blind", "deaf", "older"]}}, "required": ["model_id", "profile"]}},
     {"name": "route_to", "description": "The walking or rolling route from a building to the nearest place of a category, for one profile: minutes, crossings, hard spots, turn-by-turn steps. Draws the route in the app.",
      "input_schema": {"type": "object", "properties": {"building_id": {"type": "string"},
@@ -99,6 +103,11 @@ def _run_tool(name: str, a: dict, actions: list) -> dict:
                 "problems": [{"severity": p["severity"], "text": p["text"]} for p in u["problems"][:10]],
                 "doorways": [{"clear_in": d["est_clear_in"], "status": d["status"], "entry": d["entry"]} for d in u["doors"] if d["is_door"] and not d["minor"]],
                 "not_checked": "fixtures (toilet, tub, counters), door hardware, counter heights, grab bars, alarms"}
+    if name == "describe_layout":
+        from . import narrate
+        u = api.unit_heatmap(a["model_id"], a["profile"])
+        actions.append({"type": "open_unit", "model_id": a["model_id"], "profile": a["profile"]})
+        return narrate.unit_narration(u, a["profile"])
     if name == "route_to":
         r = api.routes(a["building_id"], a["category"], a["profile"])
         actions.append({"type": "show_route", "building_id": a["building_id"], "category": a["category"], "profile": a["profile"]})
@@ -128,7 +137,12 @@ def _run_tool(name: str, a: dict, actions: list) -> dict:
 def chat(messages: list[dict], context: dict | None = None) -> dict:
     context = context or {}
     if not os.getenv("ANTHROPIC_API_KEY"):
-        return _fallback(messages, context)
+        from . import dialogue
+        last = next((m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+        try:
+            return dialogue.respond(last, context.get("state"), context)
+        except Exception as e:  # noqa: BLE001 - a spoken interface must always answer
+            return {"text": f"Sorry, I couldn't look that up ({str(getattr(e, 'detail', e))[:120]}). Please try again.", "ui_actions": [], "state": context.get("state") or {}}
     import anthropic
     client = anthropic.Anthropic()
     msgs = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]

@@ -131,5 +131,7 @@ def ground_along(coords: list[list[float]], step_m: float = 10.0, z: int = 16) -
         if run > 5:
             grades[i] = (h[i + win] - h[i]) / run * 100
     return {"dist_m": [round(float(v)) for v in dist], "height_m": [round(float(v - h.min()), 1) for v in h],
-            "grade_pct": [round(float(v), 1) for v in grades], "max_grade_pct": round(float(np.abs(grades).max()), 1),
+            "grade_pct": [round(float(v), 1) for v in grades],
+            # the 95th percentile, not the single worst sample: one tree or parked truck shouldn't set the headline
+            "max_grade_pct": round(float(np.percentile(np.abs(grades), 95)), 1),
             "climb_m": round(float(np.clip(np.diff(h), 0, None).sum()), 1), "step_m": step_m}

@@ -111,7 +111,8 @@ def _slim(b: dict, ps: list[str], how: str) -> dict:
             "price", "units_scanned", "scores", "beds", "baths", "sqft")
     out = {k: b.get(k) for k in keys}
     out["measured_inside"] = bool(b.get("inside"))
-    out["splat"] = any(u["model_id"] in _splat_ids() for u in b["units"])
+    out["splat_sid"] = next((u["model_id"] for u in b["units"] if u["model_id"] in _splat_ids()), None)
+    out["splat"] = out["splat_sid"] is not None
     try:
         cell = hexes(b["city"])["by_id"].get(b["h3"])
     except HTTPException:
@@ -125,7 +126,9 @@ def _slim(b: dict, ps: list[str], how: str) -> dict:
 
 @app.get("/health")
 def health():
+    from backend.app import speech
     return {"ok": True, "mode": "real" if REAL else "mock", "agent": bool(os.getenv("ANTHROPIC_API_KEY")), "voice": bool(os.getenv("GEMINI_API_KEY")),
+            "speech": speech.available(), "local_model": __import__("backend.app.brain", fromlist=["model"]).model(),
             "matterport_sdk_key": bool(os.getenv("MATTERPORT_SDK_KEY"))}
 
 
@@ -177,11 +180,13 @@ def map_hexes(city: str = "houston", profiles: str = "wheelchair", combine: Lite
         data = _mock("hexes.json")
         return {"city": data["city"], "res": data["res"], "profiles": ps, "cells": [{**c, "combined": _combine(c["scores"], ps, combine)} for c in data["cells"]]}
     d = hexes(city)
-    # compact rows keep the payload small: [h3, combined score, confidence (0 low, 1 medium, 2 high), live]; details: /map/hexes/{cell}
+    # compact rows keep the payload small: [h3, combined score, confidence (0 low, 1 medium, 2 high), live,
+    # index into `profiles` of the need with the lowest score here, each need's own score in order]; details: /map/hexes/{cell}
     cells = []
     for c in d["cells"]:
         cb = _combine(c["scores"], ps, combine)
-        cells.append([c["h3"], cb["score"], ORDER[cb["confidence"]], 1 if c["live"] else 0])
+        weakest = min(range(len(ps)), key=lambda i: c["scores"][ps[i]]["score"])
+        cells.append([c["h3"], cb["score"], ORDER[cb["confidence"]], 1 if c["live"] else 0, weakest, [c["scores"][p]["score"] for p in ps]])
     return {"city": city, "res": d["res"], "profiles": ps, "combine": combine, "cells": cells, "note": d.get("note")}
 
 
@@ -627,3 +632,54 @@ def crosswalk(lat: float, lon: float):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out))
     return out
+
+
+@app.get("/units/{model_id}/narration")
+def unit_narration(model_id: str, profile: Profile = "wheelchair", furnished: bool = False):
+    """A spoken walk-through of the unit, built from its measured geometry (for screen readers and voice)."""
+    from backend.app import narrate
+    return narrate.unit_narration(unit_heatmap(model_id, profile, furnished), profile)
+
+
+# ---------------------------------------------------------------- open-source speech (runs locally)
+
+from fastapi import Request  # noqa: E402
+
+
+@app.on_event("startup")
+def _warm_speech():
+    from backend.app import brain, speech
+    speech.warm()
+    brain.warm()
+
+
+@app.post("/speech/transcribe")
+async def speech_transcribe(request: Request):
+    """A browser recording (webm, mp4 or wav bytes as the body) -> text, with Whisper running on this machine."""
+    from fastapi.concurrency import run_in_threadpool
+    from backend.app import speech
+    if not speech.available()["listen"]:
+        raise HTTPException(503, "local speech recognition isn't installed (pip install faster-whisper, and ffmpeg)")
+    body = await request.body()
+    if len(body) < 800:
+        return {"text": "", "seconds": 0}
+    try:
+        return await run_in_threadpool(speech.transcribe, body)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+class SayRequest(BaseModel):
+    text: str
+    speed: float = 1.0
+
+
+@app.post("/speech/say")
+def speech_say(req: SayRequest):
+    """Text -> spoken WAV, with Piper running on this machine."""
+    from backend.app import speech
+    if not speech.available()["speak"]:
+        raise HTTPException(503, "local speech isn't installed (pip install piper-tts and put the voice in data/speech)")
+    if not req.text.strip():
+        raise HTTPException(422, "nothing to say")
+    return Response(speech.say(req.text[:3000], req.speed), media_type="audio/wav")

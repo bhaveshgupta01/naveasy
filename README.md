@@ -25,9 +25,14 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Relocation match | Working, LA to Houston and back | |
 | Aerial 3D map | Working: Vexcel aerial tiles as the base map and Vexcel surface heights as 3D terrain past zoom 15 (both proxied and cached; the key stays on the server), rotate and tilt, score pillars | Midtown pre-loaded |
 | Outside of a home in 3D | Working for every building from Vexcel surface heights + aerial photo; drone Gaussian splat viewer for the homes that have one (checked: renders the home in detail) | 230 buildings with a splat |
+| Zoom into a drone model | Homes with a drone model carry a yellow ring and a "Drone 3D" label on the map. Zoom past 18 with one near the middle of the screen and the map hands over to its drone model, starting at the map's tilt; zoom far out of it (or press Escape or "Back to the map") to return. `scripts/prefetch_splats.py` pre-loads the ones near an area | 198 Houston homes |
 | Angled photos around a home | Working (Vexcel obliques, four directions) | |
 | Matterport 3D tour with problem pins | Working: pins sit on the measured doorways and clicking a problem flies the camera to it | localhost only |
 | Guided demo | Working: seven steps that run live (`?panel=story`) | |
+| Voice mode | Working, on open-source speech that runs locally: Whisper (`base.en`, via faster-whisper) hears and Piper (`en_US-lessac-medium`) speaks, so nothing said leaves the machine. Hold Space or tap, speak, and the answer is read aloud while the app moves behind it (press V). Checked in a real browser: three spoken questions heard correctly and answered in about 4 s each. Falls back to the browser's speech if the models aren't installed | Not yet tried with a physical microphone |
+| Understanding free speech | Working on a local open-source language model through Ollama (`qwen2.5:7b`; `backend/app/brain.py`). It turns what you say into a command (needs, budget, place, qualities such as safe streets or near a bus stop) and words answers from retrieved facts; it never supplies facts. About 4 s per turn on an M-series Mac. Without Ollama it falls back to keyword rules | `ollama pull qwen2.5:7b` |
+| Questions about what's on screen | Working: the app sends a snapshot of what is shown (home, unit, route, list, moving results) and the assistant answers from those facts only, or says it isn't on screen (`backend/app/screen.py`) | |
+| Spoken home descriptions | Working: layout from the entry door, room sizes, window directions and sun (from Matterport's compass alignment), doorways, problems (`backend/app/narrate.py`) | |
 | Agent | Tool-calling Claude agent written but **not yet run with a key**; a rule-based fallback answers without one | Needs `ANTHROPIC_API_KEY` |
 | Voice | Browser speech in and out in the chat panel; Gemini Live token endpoint written, **untested** | Needs `GEMINI_API_KEY` |
 
@@ -76,12 +81,22 @@ python -m pipeline.locality houston --live && python -m pipeline.locality la
 python -m pipeline.furniture fetch <model_id> && python -m pipeline.furniture find <model_id>   # per furnished hero home
 ```
 
+Speech models (open source, run locally; needs `ffmpeg`). Whisper downloads itself on first use; fetch the Piper voice once:
+
+```bash
+mkdir -p data/speech && cd data/speech
+B=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium
+curl -LO $B/en_US-lessac-medium.onnx && curl -LO $B/en_US-lessac-medium.onnx.json
+```
+
+The assistant's understanding uses a local model through Ollama: `ollama pull qwen2.5:7b` (4.7 GB). Set `NAVEASY_LOCAL_LLM` to pick another model, or to `off` for keyword rules only.
+
 Run it:
 
 ```bash
 ./run.sh                                     # API on :8000 and the web app on http://localhost:5173
 python scripts/prewarm_3d.py <lat> <lon> <km>   # optional: pre-load 3D tiles for an area you will demo
-python -m pytest tests                       # 15 tests, under a second, no network
+python -m pytest tests                       # 23 tests, under a second, no network
 ```
 
 Useful demo links: `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),

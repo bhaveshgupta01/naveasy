@@ -9,6 +9,8 @@ interface Props {
   name: string
   splatSid?: string | null
   onClose: () => void
+  inline?: boolean // fill the map area instead of a pop-up (the map hands over to it when you zoom in)
+  pitch?: number // the map's tilt when it handed over, so the view continues from the same angle
 }
 
 interface Surface {
@@ -24,13 +26,15 @@ interface Surface {
 // The outside of a home as a 3D model you can orbit.
 //  - "Block": Vexcel surface heights draped with the Vexcel aerial photo. Works for every building.
 //  - "Drone model": Matterport's aerial Gaussian splat, where one exists (230 homes). Much finer detail.
-export default function Outside3D({ lat, lon, name, splatSid, onClose }: Props) {
+export default function Outside3D({ lat, lon, name, splatSid, onClose, inline = false, pitch = 50 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState<'block' | 'splat'>(splatSid ? 'splat' : 'block')
   const [status, setStatus] = useState('Loading…')
   const [spin, setSpin] = useState(true)
   const spinRef = useRef(spin)
   spinRef.current = spin
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     const el = host.current
@@ -101,16 +105,22 @@ export default function Outside3D({ lat, lon, name, splatSid, onClose }: Props) 
       }
     } else if (splatSid) {
       let viewer: { dispose?: () => Promise<void> | void; start: () => void } | null = null
+      let watch: number | undefined
+      // start from the map's tilt: pitch 0 looks straight down, 60 is a low angle
+      const el_ = (Math.max(10, Math.min(80, 90 - pitch)) * Math.PI) / 180
+      const d = inline ? 34 : 40
       import('@mkkellogg/gaussian-splats-3d')
         .then((GS) => {
           if (dead) return
           const v = new GS.Viewer({
             rootElement: el,
             cameraUp: [0, 0, 1],
-            initialCameraPosition: [-32, -32, 22],
+            initialCameraPosition: [-d * Math.cos(el_) * 0.7071, -d * Math.cos(el_) * 0.7071, d * Math.sin(el_) + 2],
             initialCameraLookAt: [0, 0, 2],
             sharedMemoryForWorkers: false,
             dynamicScene: false,
+            // show the whole lot at once (the default reveal fades in from the middle, which hides the yard at first)
+            sceneRevealMode: GS.SceneRevealMode ? GS.SceneRevealMode.Instant : undefined,
           })
           viewer = v
           return v
@@ -119,23 +129,71 @@ export default function Outside3D({ lat, lon, name, splatSid, onClose }: Props) 
               if (dead) return
               v.start()
               setStatus('')
+              if (inline) {
+                // zooming well out of the drone model hands back to the map
+                watch = window.setInterval(() => {
+                  const cam = (v as unknown as { camera?: THREE.Camera }).camera
+                  if (cam && cam.position.length() > 150) {
+                    window.clearInterval(watch)
+                    onCloseRef.current()
+                  }
+                }, 250)
+              }
             })
         })
         .catch((e) => setStatus(`Couldn't load the drone model (${String(e.message ?? e)}). Try the Block view.`))
       dispose = () => {
-        try {
-          void viewer?.dispose?.()
-        } catch {
-          /* viewer already gone */
-        }
-        el.replaceChildren()
+        window.clearInterval(watch)
+        // the viewer removes its own canvas when it finishes disposing; clear whatever is left after that
+        Promise.resolve()
+          .then(() => viewer?.dispose?.())
+          .catch(() => undefined)
+          .finally(() => el.replaceChildren())
       }
     }
     return () => {
       dead = true
       dispose()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, lat, lon, splatSid])
+
+  useEffect(() => {
+    if (!inline) return
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current()
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [inline])
+
+  if (inline)
+    return (
+      <div className="drone-inline" role="region" aria-label={`Drone model of ${name}`}>
+        <div className="drone-bar">
+          <button className="primary" onClick={onClose}>
+            ← Back to the map
+          </button>
+          <div>
+            <strong>{name}</strong>
+            <span className="muted"> · {mode === 'splat' ? 'drone model' : '3D block from aerial heights'} · drag to orbit, scroll to zoom; zoom far out to return</span>
+          </div>
+          {splatSid && (
+            <div className="seg" role="group" aria-label="3D model">
+              <button className={mode === 'splat' ? 'on' : ''} aria-pressed={mode === 'splat'} onClick={() => setMode('splat')}>
+                Drone
+              </button>
+              <button className={mode === 'block' ? 'on' : ''} aria-pressed={mode === 'block'} onClick={() => setMode('block')}>
+                Block
+              </button>
+            </div>
+          )}
+          <span className="muted" role="status">
+            {status}
+          </span>
+        </div>
+        <div ref={host} className="drone-host" />
+        <p className="drone-credit">{mode === 'splat' ? 'Drone model © Matterport, cropped to the home and its lot' : 'Heights and imagery © Vexcel Imaging US, Inc.'}</p>
+      </div>
+    )
 
   return (
     <div className="unit-overlay" role="dialog" aria-modal="true" aria-label={`3D view of the outside of ${name}`}>

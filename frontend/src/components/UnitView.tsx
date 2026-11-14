@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import FloorPlan, { HEAT } from './FloorPlan'
 import Tour3D from './Tour3D'
-import { fetchFurnishScore, fetchUnit, fetchUnitCustom, planFurnishing, type Meta } from '../api'
+import { fetchFurnishScore, fetchNarration, fetchUnit, fetchUnitCustom, planFurnishing, type Meta } from '../api'
 import { PROFILES, scoreWord, type FurnishPlan, type FurnishScore, type Furniture, type Problem, type Profile, type Unit } from '../types'
 
 const CHECK_LABEL: Record<string, string> = {
@@ -51,6 +51,23 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
   const [showTypical, setShowTypical] = useState(false)
   const [pieces, setPieces] = useState(DEFAULT_PIECES.join(', '))
   const [busy, setBusy] = useState(false)
+  const [story, setStory] = useState<string[] | null>(null)
+
+  // Read the home aloud: a walk-through in words, built from the same measurements as the picture
+  const listen = () => {
+    if (story) {
+      window.speechSynthesis?.cancel()
+      return setStory(null)
+    }
+    fetchNarration(modelId, profile)
+      .then((n) => {
+        setStory(n.paragraphs)
+        window.speechSynthesis?.cancel()
+        n.paragraphs.join(' ').match(/[^.!?]+[.!?]+/g)?.forEach((part) => window.speechSynthesis?.speak(new SpeechSynthesisUtterance(part)))
+      })
+      .catch((e) => setError(String(e.message ?? e)))
+  }
+  useEffect(() => () => window.speechSynthesis?.cancel(), [])
 
   useEffect(() => {
     setError(null)
@@ -201,6 +218,16 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
 
                 {tab === 'heat' && (
                   <>
+                    <button className="primary" onClick={listen} aria-pressed={!!story}>
+                      {story ? '■ Stop' : '🔊 Describe this home aloud'}
+                    </button>
+                    {story && (
+                      <div className="narration" aria-live="polite">
+                        {story.map((p_, i) => (
+                          <p key={i}>{p_}</p>
+                        ))}
+                      </div>
+                    )}
                     <h3>What we measured</h3>
                     <table className="checks">
                       <tbody>

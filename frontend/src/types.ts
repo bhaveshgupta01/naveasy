@@ -31,6 +31,7 @@ export interface Building {
   units_scanned: number
   measured_inside: boolean
   splat?: boolean
+  splat_sid?: string | null // Matterport model with an aerial drone model (Gaussian splat)
   locality_scores?: Record<Profile, Score> | null
   scores: Record<Profile, Score>
   combined?: Score
@@ -232,6 +233,7 @@ export type UiAction =
   | { type: 'open_unit'; model_id: string; profile?: Profile; problem_id?: string; tab?: string; plan?: FurnishPlan }
   | { type: 'show_route'; building_id: string; category: Category; profile: Profile }
   | { type: 'show_relocation'; request: Record<string, unknown> }
+  | { type: 'open_drone'; id: string }
 
 export const PROFILES: { id: Profile; label: string; short: string; color: string }[] = [
   { id: 'wheelchair', label: 'Wheelchair', short: 'Wheelchair', color: '#d9363e' },

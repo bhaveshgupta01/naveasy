@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView, { CITY_VIEW, scoreColor, type MapTarget } from './components/MapView'
 import BuildingPanel from './components/BuildingPanel'
 import UnitView from './components/UnitView'
 import RelocatePanel from './components/RelocatePanel'
-import ChatPanel from './components/ChatPanel'
-import { combine, fetchBuildings, fetchHex, fetchHexes, fetchMeta, relocate, type HexRow, type Meta } from './api'
+import ChatPanel, { type Msg } from './components/ChatPanel'
+import VoiceMode from './components/VoiceMode'
+import Outside3D from './components/Outside3D'
+import { chat, combine, fetchBuildings, fetchHex, fetchHexes, fetchMeta, relocate, type HexRow, type Meta } from './api'
 import { CATEGORIES, PROFILES, scoreWord, type Building, type Category, type City, type FurnishPlan, type Profile, type Relocation, type Route, type UiAction } from './types'
 import './App.css'
 
@@ -28,6 +30,7 @@ export default function App() {
   const [measuredOnly, setMeasuredOnly] = useState(false)
   const [maxRent, setMaxRent] = useState('')
   const [showHexes, setShowHexes] = useState(true)
+  const [heatView, setHeatView] = useState<'all' | Profile>('all') // with several needs: all together, or one need's heat map
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [highlighted, setHighlighted] = useState<string[]>([])
   const [openUnit, setOpenUnit] = useState<OpenUnit | null>(null)
@@ -40,9 +43,16 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [contrast, setContrast] = useState(false)
   const [step, setStep] = useState(-1)
+  const [voice, setVoice] = useState(false)
+  const [drone, setDrone] = useState<{ b: Building; pitch: number } | null>(null) // the map handed over to a home's drone model
+  const allRef = useRef<Building[]>([])
+  const [msgs, setMsgs] = useState<Msg[]>([])
+  const convo = useRef<{ state: Record<string, unknown>; location?: { lat: number; lon: number } }>({ state: {} })
   const [aerial, setAerial] = useState(true)
   const [threeD, setThreeD] = useState(true)
 
+  // which needs the heat layer shows: all selected needs, or just the one picked in the legend
+  const heatProfiles = heatView !== 'all' && profiles.includes(heatView) ? [heatView] : profiles
   const fly = useCallback((center: [number, number], zoom: number) => setTarget({ center, zoom, n: Date.now() }), [])
 
   // Deep links for demos and sharing: ?city=houston&needs=wheelchair,deaf&home=p123&unit=<model>&tab=plan&route=pharmacy&panel=move
@@ -67,9 +77,11 @@ export default function App() {
   }, [city])
   useEffect(() => {
     if (!profiles.length) return setHexes([])
-    fetchHexes(city, profiles, how).then(setHexes).catch(() => setHexes([]))
-  }, [city, profiles, how])
+    fetchHexes(city, heatProfiles, how).then(setHexes).catch(() => setHexes([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [city, profiles, how, heatView])
 
+  allRef.current = all
   const buildings = useMemo(() => {
     if (!profiles.length) return []
     const rent = Number(maxRent) || 0
@@ -125,6 +137,9 @@ export default function App() {
         else if (a.type === 'show_route') {
           setSelectedId(a.building_id)
           setAutoRoute({ category: a.category, profile: a.profile })
+        } else if (a.type === 'open_drone') {
+          const b = allRef.current.find((x) => x.id === a.id)
+          if (b) setDrone({ b, pitch: 50 })
         } else if (a.type === 'show_relocation') {
           setTab('move')
           relocate(a.request).then(setRelocation).catch(() => undefined)
@@ -197,8 +212,57 @@ export default function App() {
     },
   ]
 
+  // One conversation shared by the chat panel and voice mode. The assistant's state (needs, the homes it listed,
+  // the home being discussed) rides along so follow-ups work; its UI actions move the app.
+  const ask = useCallback(
+    async (text: string) => {
+      setMsgs((m) => [...m, { role: 'user', content: text }])
+      try {
+        const r = await chat([{ role: 'user', content: text }], { city, profiles, state: convo.current.state, location: convo.current.location, screen: screenRef.current })
+        convo.current.state = r.state ?? convo.current.state
+        setMsgs((m) => [...m, { role: 'assistant', content: r.text }])
+        runActions(r.ui_actions ?? [])
+        return r.text
+      } catch (e) {
+        const msg = `Sorry, that failed: ${String((e as Error).message ?? e)}`
+        setMsgs((m) => [...m, { role: 'assistant', content: msg }])
+        return msg
+      }
+    },
+    [city, profiles, runActions],
+  )
+  useEffect(() => {
+    if (!voice || convo.current.location) return
+    navigator.geolocation?.getCurrentPosition(
+      (p) => (convo.current.location = { lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => undefined,
+      { maximumAge: 60000, timeout: 8000 },
+    )
+  }, [voice])
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (e.key.toLowerCase() === 'v' && !e.metaKey && !e.ctrlKey && !e.altKey && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') setVoice(true)
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [])
+
+  // What is on screen right now, so the assistant can answer questions about it ("how wide is that door?")
+  const screenRef = useRef<Record<string, unknown>>({})
+  screenRef.current = {
+    city,
+    selected_building: selectedId,
+    unit: openUnit ? { model_id: openUnit.modelId, profile: openUnit.profile ?? profiles[0] } : null,
+    route: route && selectedId ? { building_id: selectedId, category: route.category, profile: route.profile } : null,
+    relocation: relocation ? { target: relocation.target_name, candidates: relocation.candidates.map((c) => ({ name: c.name, match: c.match, reason: c.reason, comparison: c.comparison })) } : null,
+    hex: hexInfo,
+    list: { count: buildings.length, top: buildings.slice(0, 5).map((b) => ({ name: b.name, score: b.combined!.score })) },
+  }
+
   const toggle = (p: Profile) => setProfiles((ps) => (ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p]))
-  const hexColor = profiles.length === 1 ? PROFILES.find((p) => p.id === profiles[0])!.color : '#3f4a5a'
+  const hexColors = heatProfiles.map((p) => PROFILES.find((x) => x.id === p)!.color)
+  const hexColor = hexColors[0] ?? '#3f4a5a'
   const stats = meta?.cities?.[city]
   const pins = relocation && relocation.target === city ? relocation.candidates.map((c, i) => ({ lon: c.lon, lat: c.lat, label: String(i + 1) })) : []
 
@@ -213,6 +277,9 @@ export default function App() {
             Nav<span>Easy</span>
           </h1>
           <p className="tagline">Can I live here independently?</p>
+          <button className="voice-open" onClick={() => setVoice(true)}>
+            🎙 Voice mode <span>talk and listen, no screen needed (press V)</span>
+          </button>
         </header>
 
         <div className="seg" role="group" aria-label="City">
@@ -349,7 +416,7 @@ export default function App() {
             </ol>
           </div>
         )}
-        {tab === 'ask' && <ChatPanel context={{ city, profiles, selected_building: selectedId }} onActions={runActions} />}
+        {tab === 'ask' && <ChatPanel msgs={msgs} ask={ask} onVoice={() => setVoice(true)} />}
 
         {error && (
           <p role="alert" className="error">
@@ -372,6 +439,7 @@ export default function App() {
           buildings={buildings}
           hexes={hexes}
           hexColor={hexColor}
+          hexColors={hexColors}
           showHexes={showHexes}
           selectedId={selectedId}
           highlighted={highlighted}
@@ -382,7 +450,24 @@ export default function App() {
           pins={pins}
           onSelect={select}
           onHex={onHex}
+          droneOpen={!!drone}
+          onDrone={(b, pitch) => {
+            setDrone({ b, pitch })
+            setSelectedId(b.id)
+          }}
         />
+        {drone && (
+          <Outside3D
+            key={drone.b.id}
+            inline
+            lat={drone.b.lat}
+            lon={drone.b.lon}
+            name={drone.b.name}
+            splatSid={drone.b.splat_sid}
+            pitch={drone.pitch}
+            onClose={() => setDrone(null)}
+          />
+        )}
         <div className="map-modes">
           <div className="seg" role="group" aria-label="Base map">
             <button className={aerial ? 'on' : ''} aria-pressed={aerial} onClick={() => setAerial(true)}>
@@ -403,11 +488,47 @@ export default function App() {
         </div>
         <div className="map-legend" aria-label="Map legend">
           <strong>{profiles.length === 1 ? PROFILES.find((p) => p.id === profiles[0])!.label : profiles.length ? `${profiles.length} needs, ${how === 'min' ? 'weakest decides' : 'average'}` : 'Pick a need'}</strong>
-          <span className="ramp" style={{ background: `linear-gradient(90deg, ${hexColor}10, ${hexColor}cc)` }} />
-          <span className="ramp-labels">
-            <span>neighborhood: low</span>
-            <span>high</span>
-          </span>
+          {profiles.length > 1 && (
+            <div className="heat-pick" role="group" aria-label="Which heat map to show">
+              <button className={heatProfiles.length > 1 ? 'on' : ''} aria-pressed={heatProfiles.length > 1} onClick={() => setHeatView('all')}>
+                All {profiles.length}
+              </button>
+              {profiles.map((p) => {
+                const info = PROFILES.find((x) => x.id === p)!
+                return (
+                  <button key={p} className={heatProfiles.length === 1 && heatProfiles[0] === p ? 'on' : ''} aria-pressed={heatProfiles.length === 1 && heatProfiles[0] === p} onClick={() => setHeatView(p)}>
+                    <i className="dot" style={{ background: info.color }} /> {info.short}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {heatProfiles.length > 1 ? (
+            <>
+              <span>
+                Neighboring cells take turns between your needs. Each cell is stronger in its need’s color where that need scores higher there. Pick one need above for
+                its full map.
+              </span>
+              <span className="heat-keys">
+                {heatProfiles.map((p) => {
+                  const info = PROFILES.find((x) => x.id === p)!
+                  return (
+                    <span key={p}>
+                      <i className="dot" style={{ background: info.color }} /> {info.short}
+                    </span>
+                  )
+                })}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="ramp" style={{ background: `linear-gradient(90deg, ${hexColor}10, ${hexColor}cc)` }} />
+              <span className="ramp-labels">
+                <span>neighborhood: low</span>
+                <span>high</span>
+              </span>
+            </>
+          )}
           <span>
             <i className="dot" style={{ background: '#1f8a4c' }} /> 75+ <i className="dot" style={{ background: '#d98a00' }} /> 50–74 <i className="dot" style={{ background: '#c62828' }} /> under 50
           </span>
@@ -440,6 +561,7 @@ export default function App() {
           onClose={() => select(null)}
         />
       )}
+      {voice && <VoiceMode ask={ask} onClose={() => setVoice(false)} />}
       {openUnit && (
         <UnitView
           key={openUnit.modelId + (openUnit.tab ?? '')}

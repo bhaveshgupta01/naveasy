@@ -31,7 +31,7 @@ export interface Meta {
   hero: { problem_unit?: string; furnished_unit?: string; plan_target?: string; la_origin?: string }
 }
 
-export type HexRow = [string, number, number, number] // h3, score, confidence 0..2, live
+export type HexRow = [string, number, number, number, number, number[]] // h3, score, confidence 0..2, live, index of the weakest need, each need's score
 
 export const fetchMeta = () => get<Meta>('/meta')
 export const fetchBuildings = (city: City) => get<{ buildings: Building[] }>(`/map/buildings?city=${city}`).then((d) => d.buildings)
@@ -53,8 +53,9 @@ export const planFurnishing = (body: { target_model_id: string; profiles: Profil
   post<FurnishPlan>('/furnish/plan', body)
 export const relocate = (body: Record<string, unknown>) => post<Relocation>('/relocate', body)
 export const chat = (messages: { role: string; content: string }[], context: Record<string, unknown>) =>
-  post<{ text: string; ui_actions: UiAction[] }>('/agent/chat', { messages, context })
+  post<{ text: string; ui_actions: UiAction[]; state?: Record<string, unknown> }>('/agent/chat', { messages, context })
 export const aerialUrl = (lat: number, lon: number) => `${API}/aerial?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&meters=30`
 export const obliqueUrl = (lat: number, lon: number, direction: string) => `${API}/oblique?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&direction=${direction}`
 export const fetchCrosswalk = (lat: number, lon: number) => get<{ seen: boolean; text: string }>(`/crosswalk?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`)
+export const fetchNarration = (modelId: string, profile: Profile) => get<{ title: string; paragraphs: string[] }>(`/units/${modelId}/narration?profile=${profile}`)
 export const TILE_URL = `${API}/tiles/{z}/{x}/{y}.jpg`

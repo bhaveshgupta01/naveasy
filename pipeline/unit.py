@@ -808,7 +808,7 @@ def unit_json(plan: Plan, res: dict, profile: str = "wheelchair", floor: int | N
         "floor_z": round(float(np.median([r["elev"] for r in f.rooms if r.get("elev") is not None] or [0.0])), 3),
         "bounds": [round(v, 3) for v in f.bounds],
         "walls": [w[:4] for w in f.walls],
-        "doors": [{k: d[k] for k in ("id", "x", "y", "angle_deg", "width_m", "est_clear_in", "threshold_m", "kind", "status", "is_door", "exterior")} | {"entry": bool(d.get("entry")), "minor": d["minor"]} for d in f.doors],
+        "doors": [{k: d[k] for k in ("id", "x", "y", "angle_deg", "width_m", "est_clear_in", "threshold_m", "kind", "status", "is_door", "exterior")} | {"entry": bool(d.get("entry")), "minor": d["minor"], "room_types": d["room_types"]} for d in f.doors],
         "windows": [{k: w[k] for k in ("x", "y", "angle_deg", "width_m")} for w in f.windows],
         "rooms": [{k: r[k] for k in ("id", "type", "polygon", "area_m2", "centroid", "panos")} for r in f.rooms],
         "furniture": [it for it in (furniture or []) if it.get("floor", 0) == fi],

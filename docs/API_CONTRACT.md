@@ -15,7 +15,7 @@ The frontend and backend agree on these shapes. The API serves real data built b
 | --- | --- |
 | `GET /health`, `GET /meta` | Mode, which keys are set, counts per city, hero ids |
 | `GET /map/buildings?city&profiles&combine&passing_only&min_score&max_rent` | Building dots with per-profile scores, `combined`, `measured_inside` |
-| `GET /map/hexes?city&profiles&combine` | Compact rows `[h3, combined score, confidence 0-2, live 0/1]` |
+| `GET /map/hexes?city&profiles&combine` | Compact rows `[h3, combined score, confidence 0-2, live 0/1, index of the weakest need]` |
 | `GET /map/hexes/{cell}?city` | One cell: scores, minutes to essentials per profile, street measures, `live` |
 | `GET /buildings/{id}?profiles` | Building + `components` (value and why), `building_scores`, `inside`, `units[]` with scores and top problems, `nearest[]`, `checklist[]` |
 | `GET /units/{model_id}/heatmap?profile&furnished&floor&chair_cm` | Floor plan, doors, rooms, furniture, turning circles, paths, problems, checks, scores and one heat grid |

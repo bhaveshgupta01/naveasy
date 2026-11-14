@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { PROFILES, type Problem, type Profile, type Unit } from '../types'
 import { worse, zoneAt, type Zone } from '../zones'
 import { TourOverlay, type Pose } from './tourOverlay'
-import { FIT } from '../colors'
 
 // Matterport SDK for Embeds. The key only works on localhost (see the Team Access Kit).
 const KEY = import.meta.env.VITE_MATTERPORT_SDK_KEY as string | undefined
@@ -360,15 +359,14 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
         </ul>
         <p className="legend">
           <span>
-            <i style={{ background: FIT.deep }} /> works well
+            <i style={{ background: '#ff2d2d' }} /> can't go / at risk
           </span>
           <span>
-            <i style={{ background: FIT.mid }} /> tight
+            <i style={{ background: '#ffb020' }} /> tight / caution
           </span>
           <span>
-            <i style={{ background: FIT.pale }} className="hatch" /> doesn't work
+            <i style={{ background: '#34c759' }} /> good
           </span>
-          <span className="muted">The screen flashes when you step onto a spot that doesn't work or is tight.</span>
         </p>
         <p className="fine">
           3D scan © Matterport. The colors, door widths and alerts come from NavEasy's measurements of this scan's walls, doorways and built-ins.

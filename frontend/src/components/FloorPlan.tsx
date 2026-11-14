@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { Furniture, Unit } from '../types'
-import { DOOR, FIXTURE_COLOR, HATCH, HEAT, INK, NEED_COLOR } from '../colors'
+import { FIXTURE_COLOR, HEAT } from '../colors'
+
+// values: 0 outside, 1 blocked, 2 problem, 3 caution, 4 good
 
 interface Props {
   unit: Unit
@@ -54,11 +56,11 @@ export default function FloorPlan({ unit, size = 520, focus, furniture, ghost, c
       ctx.fillRect(X(g.origin[0] + a * g.cell_m), Y(g.origin[1] + (j + 1) * g.cell_m), (b - a) * cs + 0.6, cs + 0.6),
     )
 
-    // "doesn't work" cells get a hatch, so the map doesn't rely on color alone
+    // caution cells get a dot pattern and problem cells a hatch, so the map doesn't rely on color alone
     if (!compact) {
       ctx.save()
-      ctx.globalAlpha = 0.45
-      ctx.strokeStyle = HATCH
+      ctx.globalAlpha = 0.35
+      ctx.strokeStyle = '#7a1414'
       ctx.lineWidth = 1
       const step = Math.max(2, Math.round(0.25 / g.cell_m))
       for (let j = 0; j < g.height; j += step)
@@ -122,7 +124,7 @@ export default function FloorPlan({ unit, size = 520, focus, furniture, ghost, c
     })
 
     if (unit.profile === 'wheelchair') {
-      ctx.strokeStyle = NEED_COLOR.wheelchair
+      ctx.strokeStyle = '#1b5fb8'
       ctx.lineWidth = 1.5
       ctx.setLineDash([5, 4])
       unit.turning_circles.forEach((t) => {
@@ -133,46 +135,32 @@ export default function FloorPlan({ unit, size = 520, focus, furniture, ghost, c
       ctx.setLineDash([])
     }
     if (unit.profile === 'blind' || unit.profile === 'older') {
-      // the route in the need's color on a white casing, so it reads on any shade of the heat map
-      const route = unit.paths.filter((p) => (unit.profile === 'older' ? p.from === 'bed' || p.to === 'kitchen' : p.from === 'entry'))
-      for (const [color, width] of [['#ffffff', 5.5], [NEED_COLOR[unit.profile], 2.8]] as const) {
-        ctx.strokeStyle = color
-        ctx.lineWidth = width
-        ctx.lineJoin = 'round'
-        route.forEach((p) => {
+      ctx.strokeStyle = unit.profile === 'blind' ? '#6a3fc4' : '#1f7a45'
+      ctx.lineWidth = 2.5
+      unit.paths
+        .filter((p) => (unit.profile === 'older' ? p.from === 'bed' || p.to === 'kitchen' : p.from === 'entry'))
+        .forEach((p) => {
           ctx.beginPath()
           p.points.forEach(([px, py], i) => (i ? ctx.lineTo(X(px), Y(py)) : ctx.moveTo(X(px), Y(py))))
           ctx.stroke()
         })
-      }
     }
     if (unit.profile === 'deaf' && unit.view_points?.seat) {
       const [sx, sy] = unit.view_points.seat
-      ctx.fillStyle = NEED_COLOR.deaf
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = 2
+      ctx.fillStyle = '#1b5fb8'
       ctx.beginPath()
       ctx.arc(X(sx), Y(sy), 6, 0, Math.PI * 2)
       ctx.fill()
-      ctx.stroke()
       ctx.font = '600 11px system-ui'
       ctx.textAlign = 'left'
-      ctx.lineWidth = 3
-      ctx.strokeText('main seat', X(sx) + 9, Y(sy) + 4)
-      ctx.fillStyle = INK
       ctx.fillText('main seat', X(sx) + 9, Y(sy) + 4)
     }
 
     ctx.textAlign = 'center'
     ctx.font = '12px system-ui'
-    // room names with a white outline, readable on every shade
-    ctx.fillStyle = '#2f333a'
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-    ctx.lineWidth = 3
-    ctx.lineJoin = 'round'
+    ctx.fillStyle = '#3a3f47'
     unit.rooms.forEach((r) => {
       if (r.area_m2 < 1.5 || r.type === 'Other') return
-      ctx.strokeText(r.type, X(r.centroid[0]), Y(r.centroid[1]) + 4)
       ctx.fillText(r.type, X(r.centroid[0]), Y(r.centroid[1]) + 4)
     })
 
@@ -184,15 +172,11 @@ export default function FloorPlan({ unit, size = 520, focus, furniture, ghost, c
         const w = ctx.measureText(label).width + 8
         const px = Math.min(W - w / 2 - 2, Math.max(w / 2 + 2, X(d.x)))
         const py = Math.min(H - 11, Math.max(11, Y(d.y)))
-        const c = DOOR[d.status]
-        ctx.fillStyle = c.fill
-        ctx.strokeStyle = d.status === 'fail' ? INK : '#ffffff'
-        ctx.lineWidth = 1.5
+        ctx.fillStyle = d.status === 'pass' ? '#14532d' : d.status === 'tight' ? '#8a5a00' : '#a01616'
         ctx.beginPath()
         ctx.roundRect(px - w / 2, py - 9, w, 18, 5)
         ctx.fill()
-        ctx.stroke()
-        ctx.fillStyle = c.text
+        ctx.fillStyle = '#fff'
         ctx.fillText(label, px, py + 4)
       })
 

@@ -1,32 +1,26 @@
-// One place for the colors that carry meaning. No red or green for places: a heat map shows how well a space fits a
-// need, not whether it is good or bad, so fit is one violet scale (deep = fits well, pale = doesn't) and each need
-// has its own hue. Checked with the dataviz validator: the fit steps are a single-hue ordinal ramp (monotone, visible
-// gaps, pale end >= 2:1 on white); the four need hues stay apart for red-green color blindness in every pairing
-// (worst pair dE 8, normal vision 19.4). Pink and gold sit under 3:1 on white, so they always come with a label.
+// One place for the colors that carry meaning.
 
-// fit scale, strong colors: the 3D floor
-export const FIT = { deep: '#6530b9', mid: '#8c5ee8', pale: '#ba99ff' }
-// the same scale as lighter tints for the 2D floor plan, so walls, labels and doors stay readable on top
-export const FIT_2D = { deep: '#6f48c3', mid: '#9573de', pale: '#bca1f3' }
-export const INK = '#2b1a5e' // dark violet text, for labels on pale fills
-export const HATCH = '#3b1d7a' // stripes that mark "doesn't work" cells, so the map never relies on color alone
+// Apartment floor-plan heat map (2D; the 3D tour floor uses the same red / yellow / green): values are
+// 0 outside, 1 wall / furniture, 2 problem (red), 3 caution (yellow), 4 good (green). Built-ins are brown.
+// Problem cells also get a hatch, so the plan never relies on color alone.
+export const HEAT = ['rgba(0,0,0,0)', '#c9ccd1', '#f29b9b', '#f6d27a', '#a8dfae']
 export const FIXTURE_COLOR = '#a8865c' // counters, islands, toilets, tubs found in Matterport's 3D mesh
 
-// heat grid values: 0 outside, 1 wall / built-in / furniture, 2 doesn't work, 3 tight, 4 works well
-export const HEAT = ['rgba(0,0,0,0)', '#c9ccd1', FIT_2D.pale, FIT_2D.mid, FIT_2D.deep]
-
-// door width labels: passes, tight, too narrow (also told apart by lightness and, for too narrow, a light chip)
+// door width labels on the plan: passes, tight, too narrow
 export const DOOR = {
-  pass: { fill: '#3b1d7a', text: '#ffffff' },
-  tight: { fill: '#7a55cc', text: '#ffffff' },
-  fail: { fill: '#e9e0ff', text: INK },
+  pass: { fill: '#14532d', text: '#ffffff' },
+  tight: { fill: '#8a5a00', text: '#ffffff' },
+  fail: { fill: '#a01616', text: '#ffffff' },
 }
 
-// need identity (map heat layer, swatches, routes inside a home)
+// Each need's identity color on the neighborhood map, swatches and legends: no red or green there, so a neighborhood
+// is shaded by need, not judged. Checked with the dataviz validator: these four stay apart for red-green color
+// blindness in every pairing (worst pair dE 8, normal vision 19.4). Pink and gold sit under 3:1 on white, so they
+// always come with a label.
 export const NEED_COLOR = { wheelchair: '#2a78d6', blind: '#9c3fa6', deaf: '#e87ba4', older: '#c99400' } as const
 
-// Building markers keep their green / orange / red score bands (and yellow when selected): a deliberate choice for
-// the map's markers and the lists that match them. The heat maps above don't use these.
+// Building markers keep their green / orange / red score bands (and yellow when selected), as do the lists that
+// match them.
 export function scoreColor(score: number): string {
   if (score >= 75) return '#1f8a4c'
   if (score >= 50) return '#d98a00'

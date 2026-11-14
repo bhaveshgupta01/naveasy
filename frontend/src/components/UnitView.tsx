@@ -242,7 +242,7 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                     </span>
                   )}
                   <span>
-                    <i style={{ background: DOOR.pass.fill }} /> door label: estimated clear width (lighter = narrower)
+                    <i style={{ background: DOOR.pass.fill }} /> door label: estimated clear width
                   </span>
                 </p>
               </div>

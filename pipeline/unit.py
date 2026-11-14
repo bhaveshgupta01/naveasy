@@ -905,8 +905,7 @@ def render_png(plan: Plan, res: dict, path, profile: str = "wheelchair", floor: 
     x0, y0, x1, y1 = u["bounds"]
     W, H = int((x1 - x0) * px_per_m), int((y1 - y0) * px_per_m)
     T = lambda x, y: ((x - x0) * px_per_m, H - (y - y0) * px_per_m)  # noqa: E731
-    # same scale as the app (frontend/src/colors.ts): one violet, deep = works well, pale = doesn't; no red or green
-    colors = np.array([(255, 255, 255), (201, 204, 209), (188, 161, 243), (149, 115, 222), (111, 72, 195)], dtype=np.uint8)
+    colors = np.array([(255, 255, 255), (205, 205, 205), (240, 130, 130), (245, 205, 115), (160, 220, 160)], dtype=np.uint8)
     vals = np.array(u["heat"]["values"])[::-1]
     im = Image.fromarray(colors[vals]).resize((W, H), Image.NEAREST)
     d = ImageDraw.Draw(im)
@@ -923,7 +922,7 @@ def render_png(plan: Plan, res: dict, path, profile: str = "wheelchair", floor: 
         cx, cy = Polygon(item_polygon(it)).centroid.coords[0]
         d.text(T(cx - 0.3, cy), it.get("label", ""), fill=(40, 20, 0))
     for door in u["doors"]:
-        col = {"pass": (59, 29, 122), "tight": (122, 85, 204), "fail": (43, 26, 94)}[door["status"]]
+        col = {"pass": (0, 110, 50), "tight": (150, 100, 0), "fail": (190, 0, 0)}[door["status"]]
         d.text(T(door["x"] + 0.05, door["y"] + 0.15), f"{door['est_clear_in']:.0f}in" + ("*" if door["entry"] else ""), fill=col)
     for r in u["rooms"]:
         d.text(T(r["centroid"][0] - 0.4, r["centroid"][1]), r["type"], fill=(60, 60, 60))

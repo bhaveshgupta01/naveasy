@@ -88,12 +88,11 @@ surfaces climbing at least 50 cm). A scan without a wall graph returns `{ has_gr
 | --- | --- | --- |
 | 0 | Outside the home | transparent |
 | 1 | Wall, fixture or furniture | grey |
-| 2 | Free floor a 32 in wheelchair can't reach | pale violet, hatched |
-| 3 | Reachable at 32 in but not 36 in | mid violet |
-| 4 | Reachable at 36 in (ADA walkway width) | deep violet |
+| 2 | Free floor a 32 in wheelchair can't reach | red, hatched |
+| 3 | Reachable at 32 in but not 36 in | yellow |
+| 4 | Reachable at 36 in (ADA walkway width) | green |
 
-Heat maps never use red or green: they show how well a space fits a need, not whether a place is good or bad.
-The exact values live in `frontend/src/colors.ts`.
+Built-ins (`fixtures`) are drawn brown. The exact values live in `frontend/src/colors.ts`.
 
 Door `status`: `pass` (≥ 32 in estimated clear width), `tight` (30–32 in), `fail` (< 30 in).
 Estimated clear width = scanned opening − 5 cm, because scans look like rough openings.

@@ -1,0 +1,1286 @@
+{
+ "city": "houston",
+ "synthetic": true,
+ "buildings": [
+  {
+   "id": "b000",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 1",
+   "lat": 29.747046,
+   "lon": -95.3928,
+   "stories": 2,
+   "elevator": false,
+   "walkup": true,
+   "year_built": 2021,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 4,
+   "scores": {
+    "wheelchair": {
+     "score": 8,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 5,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 7,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 26,
+     "confidence": "low"
+    }
+   }
+  },
+  {
+   "id": "b001",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 2",
+   "lat": 29.74517,
+   "lon": -95.373451,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2016,
+   "rent_min": 1600,
+   "rent_max": 2100,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 61,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 37,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 43,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 72,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b002",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 3",
+   "lat": 29.739778,
+   "lon": -95.390903,
+   "stories": 12,
+   "elevator": false,
+   "walkup": true,
+   "year_built": 1998,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 4,
+   "scores": {
+    "wheelchair": {
+     "score": 58,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 54,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 50,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 64,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b003",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 4",
+   "lat": 29.751606,
+   "lon": -95.376181,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 74,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 60,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 58,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 70,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b004",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 5",
+   "lat": 29.751719,
+   "lon": -95.388946,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2016,
+   "rent_min": 1350,
+   "rent_max": 3200,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 65,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 56,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 61,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 87,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b005",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 6",
+   "lat": 29.748216,
+   "lon": -95.387351,
+   "stories": 2,
+   "elevator": false,
+   "walkup": true,
+   "year_built": 1985,
+   "rent_min": 1100,
+   "rent_max": 2500,
+   "units_scanned": 4,
+   "scores": {
+    "wheelchair": {
+     "score": 47,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 31,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 58,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 67,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b006",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 7",
+   "lat": 29.739252,
+   "lon": -95.375148,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1985,
+   "rent_min": 1600,
+   "rent_max": 2100,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 93,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 73,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 88,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 90,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b007",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 8",
+   "lat": 29.745705,
+   "lon": -95.383364,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1100,
+   "rent_max": 2100,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 42,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 31,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 32,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 33,
+     "confidence": "low"
+    }
+   }
+  },
+  {
+   "id": "b008",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 9",
+   "lat": 29.740859,
+   "lon": -95.365609,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2021,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 5,
+   "scores": {
+    "wheelchair": {
+     "score": 96,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 82,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 81,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 90,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b009",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 10",
+   "lat": 29.735496,
+   "lon": -95.393409,
+   "stories": 12,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1985,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 3,
+   "scores": {
+    "wheelchair": {
+     "score": 83,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 60,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 62,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 77,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b010",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 11",
+   "lat": 29.735577,
+   "lon": -95.366802,
+   "stories": 12,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1998,
+   "rent_min": 1900,
+   "rent_max": 2100,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 97,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 81,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 90,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 87,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b011",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 12",
+   "lat": 29.73309,
+   "lon": -95.368916,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1350,
+   "rent_max": 2100,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 35,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 22,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 25,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 49,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b012",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 13",
+   "lat": 29.741855,
+   "lon": -95.38757,
+   "stories": 3,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2021,
+   "rent_min": 1600,
+   "rent_max": 2500,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 79,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 59,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 71,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 71,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b013",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 14",
+   "lat": 29.737093,
+   "lon": -95.384034,
+   "stories": 3,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 34,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 19,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 28,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 45,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b014",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 15",
+   "lat": 29.74404,
+   "lon": -95.385703,
+   "stories": 12,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2016,
+   "rent_min": 1900,
+   "rent_max": 2100,
+   "units_scanned": 4,
+   "scores": {
+    "wheelchair": {
+     "score": 71,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 41,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 49,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 67,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b015",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 16",
+   "lat": 29.741866,
+   "lon": -95.380423,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1900,
+   "rent_max": 3200,
+   "units_scanned": 3,
+   "scores": {
+    "wheelchair": {
+     "score": 79,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 47,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 59,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 78,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b016",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 17",
+   "lat": 29.735064,
+   "lon": -95.388362,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2008,
+   "rent_min": 1100,
+   "rent_max": 2100,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 96,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 77,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 90,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 98,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b017",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 18",
+   "lat": 29.752069,
+   "lon": -95.388843,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 55,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 23,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 45,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 47,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b018",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 19",
+   "lat": 29.741852,
+   "lon": -95.366695,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1985,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 76,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 51,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 60,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 75,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b019",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 20",
+   "lat": 29.733072,
+   "lon": -95.377143,
+   "stories": 3,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1100,
+   "rent_max": 2100,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 85,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 72,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 72,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 79,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b020",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 21",
+   "lat": 29.753067,
+   "lon": -95.386606,
+   "stories": 6,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2021,
+   "rent_min": 1600,
+   "rent_max": 2500,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 72,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 49,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 58,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 65,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b021",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 22",
+   "lat": 29.747192,
+   "lon": -95.380698,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2008,
+   "rent_min": 1100,
+   "rent_max": 2100,
+   "units_scanned": 5,
+   "scores": {
+    "wheelchair": {
+     "score": 81,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 67,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 93,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 98,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b022",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 23",
+   "lat": 29.752802,
+   "lon": -95.383153,
+   "stories": 4,
+   "elevator": false,
+   "walkup": true,
+   "year_built": 2016,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 5,
+   "scores": {
+    "wheelchair": {
+     "score": 52,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 46,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 62,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 53,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b023",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 24",
+   "lat": 29.73447,
+   "lon": -95.390503,
+   "stories": 12,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1985,
+   "rent_min": 1600,
+   "rent_max": 2100,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 50,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 26,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 42,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 62,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b024",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 25",
+   "lat": 29.752006,
+   "lon": -95.390916,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1998,
+   "rent_min": 1350,
+   "rent_max": 3200,
+   "units_scanned": 3,
+   "scores": {
+    "wheelchair": {
+     "score": 39,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 31,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 47,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 54,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b025",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 26",
+   "lat": 29.734385,
+   "lon": -95.367039,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1998,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 28,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 21,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 45,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 56,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b026",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 27",
+   "lat": 29.732657,
+   "lon": -95.383481,
+   "stories": 4,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2016,
+   "rent_min": 1900,
+   "rent_max": 3200,
+   "units_scanned": 6,
+   "scores": {
+    "wheelchair": {
+     "score": 63,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 67,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 75,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 88,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b027",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 28",
+   "lat": 29.751159,
+   "lon": -95.36882,
+   "stories": 4,
+   "elevator": false,
+   "walkup": true,
+   "year_built": 2008,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 58,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 26,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 55,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 64,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b028",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 29",
+   "lat": 29.737038,
+   "lon": -95.370636,
+   "stories": 3,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1985,
+   "rent_min": 1100,
+   "rent_max": 3200,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 46,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 29,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 34,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 60,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b029",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 30",
+   "lat": 29.740128,
+   "lon": -95.379237,
+   "stories": 4,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 1972,
+   "rent_min": 1100,
+   "rent_max": 2500,
+   "units_scanned": 2,
+   "scores": {
+    "wheelchair": {
+     "score": 84,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 79,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 66,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 90,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b030",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 31",
+   "lat": 29.739996,
+   "lon": -95.37148,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2008,
+   "rent_min": 1350,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 96,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 64,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 96,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 97,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b031",
+   "kind": "apartment_community",
+   "name": "Sample Lofts 32",
+   "lat": 29.748966,
+   "lon": -95.372725,
+   "stories": 2,
+   "elevator": true,
+   "walkup": false,
+   "year_built": 2021,
+   "rent_min": 1600,
+   "rent_max": 3200,
+   "units_scanned": 3,
+   "scores": {
+    "wheelchair": {
+     "score": 57,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 29,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 57,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 58,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b032",
+   "kind": "home",
+   "name": "Sample House 33",
+   "lat": 29.747705,
+   "lon": -95.384367,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 1985,
+   "rent_min": 1900,
+   "rent_max": 3200,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 75,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 54,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 69,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 72,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b033",
+   "kind": "home",
+   "name": "Sample House 34",
+   "lat": 29.738923,
+   "lon": -95.378158,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 2008,
+   "rent_min": 1600,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 21,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 12,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 18,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 35,
+     "confidence": "low"
+    }
+   }
+  },
+  {
+   "id": "b034",
+   "kind": "home",
+   "name": "Sample House 35",
+   "lat": 29.754736,
+   "lon": -95.372893,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 2021,
+   "rent_min": 1600,
+   "rent_max": 2100,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 55,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 39,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 47,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 46,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b035",
+   "kind": "home",
+   "name": "Sample House 36",
+   "lat": 29.736479,
+   "lon": -95.392816,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 1972,
+   "rent_min": 1900,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 44,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 21,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 35,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 37,
+     "confidence": "low"
+    }
+   }
+  },
+  {
+   "id": "b036",
+   "kind": "home",
+   "name": "Sample House 37",
+   "lat": 29.741292,
+   "lon": -95.389368,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 1972,
+   "rent_min": 1900,
+   "rent_max": 2100,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 78,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 81,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 81,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 80,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b037",
+   "kind": "home",
+   "name": "Sample House 38",
+   "lat": 29.737681,
+   "lon": -95.369747,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 2021,
+   "rent_min": 1600,
+   "rent_max": 2500,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 82,
+     "confidence": "high"
+    },
+    "blind": {
+     "score": 70,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 75,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 93,
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "b038",
+   "kind": "home",
+   "name": "Sample House 39",
+   "lat": 29.744849,
+   "lon": -95.368378,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 1998,
+   "rent_min": 1350,
+   "rent_max": 3200,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 54,
+     "confidence": "medium"
+    },
+    "blind": {
+     "score": 51,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 54,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 58,
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "b039",
+   "kind": "home",
+   "name": "Sample House 40",
+   "lat": 29.742257,
+   "lon": -95.373521,
+   "stories": 1,
+   "elevator": false,
+   "walkup": null,
+   "year_built": 2016,
+   "rent_min": 1100,
+   "rent_max": 2100,
+   "units_scanned": 1,
+   "scores": {
+    "wheelchair": {
+     "score": 17,
+     "confidence": "low"
+    },
+    "blind": {
+     "score": 8,
+     "confidence": "low"
+    },
+    "deaf": {
+     "score": 12,
+     "confidence": "low"
+    },
+    "older": {
+     "score": 24,
+     "confidence": "low"
+    }
+   }
+  }
+ ]
+}

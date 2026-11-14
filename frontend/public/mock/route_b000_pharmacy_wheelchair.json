@@ -1,0 +1,91 @@
+{
+ "origin": {
+  "building_id": "b000",
+  "lat": 29.7437,
+  "lon": -95.3795
+ },
+ "destination": {
+  "category": "pharmacy",
+  "name": "Sample Pharmacy",
+  "lat": 29.7525,
+  "lon": -95.3723
+ },
+ "profile": "wheelchair",
+ "minutes": 19.8,
+ "meters": 1310,
+ "crossings": 6,
+ "confidence": "medium",
+ "stretches": [
+  {
+   "coords": [
+    [
+     -95.3795,
+     29.7437
+    ],
+    [
+     -95.37859999999999,
+     29.7448
+    ],
+    [
+     -95.37769999999999,
+     29.7459
+    ],
+    [
+     -95.37679999999999,
+     29.747
+    ]
+   ],
+   "status": "green",
+   "why": "Sidewalk, gentle slope"
+  },
+  {
+   "coords": [
+    [
+     -95.37679999999999,
+     29.747
+    ],
+    [
+     -95.37589999999999,
+     29.7481
+    ]
+   ],
+   "status": "red",
+   "why": "No sidewalk mapped; route runs on the road"
+  },
+  {
+   "coords": [
+    [
+     -95.37589999999999,
+     29.7481
+    ],
+    [
+     -95.375,
+     29.749200000000002
+    ],
+    [
+     -95.3741,
+     29.7503
+    ],
+    [
+     -95.3732,
+     29.7514
+    ],
+    [
+     -95.3723,
+     29.7525
+    ]
+   ],
+   "status": "amber",
+   "why": "Sidewalk, but curbs not mapped"
+  }
+ ],
+ "hard_spots": [
+  {
+   "lon": -95.37589999999999,
+   "lat": 29.7481,
+   "type": "no_lowered_curb",
+   "text": "Crossing without a mapped lowered curb",
+   "image_url": null
+  }
+ ]
+}

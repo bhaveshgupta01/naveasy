@@ -1,0 +1,24 @@
+{
+ "text": "These three homes in Midtown meet your wheelchair checks and are within 10 minutes of a pharmacy.",
+ "ui_actions": [
+  {
+   "type": "set_map_view",
+   "center": [
+    -95.3795,
+    29.7437
+   ],
+   "zoom": 15,
+   "profiles": [
+    "wheelchair"
+   ]
+  },
+  {
+   "type": "highlight_buildings",
+   "ids": [
+    "b000",
+    "b003",
+    "b007"
+   ]
+  }
+ ]
+}

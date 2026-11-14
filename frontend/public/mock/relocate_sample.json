@@ -1,0 +1,96 @@
+{
+ "origin": {
+  "label": "Sample address, Los Angeles",
+  "lat": 34.0522,
+  "lon": -118.2437
+ },
+ "profiles": [
+  "wheelchair"
+ ],
+ "candidates": [
+  {
+   "h3": "89446ca9d7bffff",
+   "name": "Midtown (sample)",
+   "match": 88,
+   "comparison": {
+    "pharmacy": [
+     8,
+     6
+    ],
+    "hospital": [
+     12,
+     19
+    ],
+    "transit": [
+     4,
+     3
+    ],
+    "grocery": [
+     9,
+     7
+    ]
+   },
+   "homes": [
+    "b000",
+    "b003",
+    "b007"
+   ],
+   "reason": "Pharmacy and grocery are closer than at home; the hospital is 7 minutes further."
+  },
+  {
+   "h3": "89446ca9d73ffff",
+   "name": "Museum District (sample)",
+   "match": 81,
+   "comparison": {
+    "pharmacy": [
+     8,
+     9
+    ],
+    "hospital": [
+     12,
+     10
+    ],
+    "transit": [
+     4,
+     5
+    ],
+    "grocery": [
+     9,
+     11
+    ]
+   },
+   "homes": [
+    "b011",
+    "b014"
+   ],
+   "reason": "Hospital is closer; groceries are 2 minutes further."
+  },
+  {
+   "h3": "89446ca99d3ffff",
+   "name": "Montrose (sample)",
+   "match": 74,
+   "comparison": {
+    "pharmacy": [
+     8,
+     10
+    ],
+    "hospital": [
+     12,
+     21
+    ],
+    "transit": [
+     4,
+     6
+    ],
+    "grocery": [
+     9,
+     8
+    ]
+   },
+   "homes": [
+    "b020"
+   ],
+   "reason": "Similar streets, fewer accessible homes."
+  }
+ ]
+}

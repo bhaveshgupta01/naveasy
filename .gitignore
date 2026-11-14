@@ -1,0 +1,27 @@
+# --- secrets & licensed hackathon data (never commit) ---
+.env
+*.rtf
+*.zip
+costar-kit/
+data/
+HackPrinceton_Prep_*.md
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+
+# --- node ---
+node_modules/
+dist/
+
+# --- generated artifacts ---
+output/
+*.npz
+.DS_Store
+
+# local tool config
+.claude/
+
+# local env for the frontend (Vite)
+*.local

@@ -1,0 +1,32 @@
+{
+ "model_id": "u_sample_001",
+ "profiles": [
+  "wheelchair"
+ ],
+ "score_empty": 70,
+ "score_furnished": 55,
+ "suggestions": [
+  {
+   "item_id": "f2",
+   "action": "remove",
+   "gain": 9,
+   "text": "Remove the coffee table to open a 36 in path from the entry to the hallway."
+  },
+  {
+   "item_id": "f4",
+   "action": "move",
+   "to": [
+    0.3,
+    3.8
+   ],
+   "gain": 6,
+   "text": "Move the dresser to the wall beside the bedroom door to free the transfer side of the bed."
+  },
+  {
+   "item_id": "f5",
+   "action": "replace",
+   "gain": 4,
+   "text": "Swap the dining table for a 0.9 m round table to keep a turning circle in the kitchen."
+  }
+ ]
+}

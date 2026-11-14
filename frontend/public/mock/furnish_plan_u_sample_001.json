@@ -1,0 +1,55 @@
+{
+ "target_model_id": "u_sample_001",
+ "profiles": [
+  "wheelchair"
+ ],
+ "score_before": 55,
+ "score_after": 86,
+ "placements": [
+  {
+   "item_id": "f1",
+   "label": "sofa",
+   "room": "r1",
+   "rect": [
+    0.2,
+    2.6,
+    2.2,
+    0.9
+   ],
+   "rotation_deg": 0
+  },
+  {
+   "item_id": "f3",
+   "label": "queen bed",
+   "room": "r3",
+   "rect": [
+    1.9,
+    5.0,
+    1.52,
+    2.03
+   ],
+   "rotation_deg": 0
+  },
+  {
+   "item_id": "f6",
+   "label": "desk",
+   "room": "r6",
+   "rect": [
+    7.3,
+    6.5,
+    1.2,
+    0.6
+   ],
+   "rotation_deg": 0
+  }
+ ],
+ "wont_fit": [
+  {
+   "label": "piano",
+   "reason": "No wall in the living room is long enough without blocking the 36 in path."
+  }
+ ],
+ "reasons": [
+  "The bed sits on the east wall so you have 1.2 m on your transfer side and a straight path to the bathroom."
+ ]
+}

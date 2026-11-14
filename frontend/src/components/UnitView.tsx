@@ -79,6 +79,11 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
       .catch((e) => setError(String(e.message ?? e)))
   }, [modelId, profile, furnished, floor])
 
+  // the 3D tour shows the scan as furnished, so its heat map and zone alerts count the furniture you can see in it
+  useEffect(() => {
+    if (tab === 'tour' && unit?.has_furniture_scan && !furnished) setFurnished(true)
+  }, [tab, unit?.has_furniture_scan, furnished])
+
   useEffect(() => {
     if (tab !== 'score' || fscore) return
     fetchFurnishScore(modelId, profiles.length ? profiles : [profile])
@@ -158,7 +163,7 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
         )}
 
         {tab === 'tour' ? (
-          <Tour3D modelId={modelId} unit={unit} />
+          <Tour3D modelId={modelId} unit={planUnit ?? unit} profile={profile} onProfile={setProfile} onFloor={setFloor} planned={!!planUnit} />
         ) : (
           ok && (
             <div className="unit-body">

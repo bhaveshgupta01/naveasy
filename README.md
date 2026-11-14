@@ -27,7 +27,7 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Outside of a home in 3D | Working for every building from Vexcel surface heights + aerial photo; drone Gaussian splat viewer for the homes that have one (checked: renders the home in detail) | 230 buildings with a splat |
 | Zoom into a drone model | Homes with a drone model carry a yellow ring and a "Drone 3D" label on the map. Zoom past 18 with one near the middle of the screen and the map hands over to its drone model, starting at the map's tilt; zoom far out of it (or press Escape or "Back to the map") to return. `scripts/prefetch_splats.py` pre-loads the ones near an area | 198 Houston homes |
 | Angled photos around a home | Working (Vexcel obliques, four directions) | |
-| Matterport 3D tour with problem pins | Working: pins sit on the measured doorways and clicking a problem flies the camera to it | localhost only |
+| Matterport 3D tour with the heat map inside it | Working: the chosen need's heat map is drawn on the scan's floor with door widths, too-narrow door gates, turning circles, main paths and furniture (or your furniture plan), moving with Matterport's camera; walls hide what is behind them. Walking inside, the screen edges pulse red where that need can't go or is at risk and amber where it's tight, with the reason on screen; pointing at the floor previews a spot before you step there; blind mode speaks each warning. Problem pins fly the camera to each problem | localhost only (SDK key). The embed SDK can't add objects to Matterport's own scene, so this is a camera-synced overlay (`frontend/src/components/tourOverlay.ts`, `frontend/src/zones.ts`) |
 | Guided demo | Working: seven steps that run live (`?panel=story`) | |
 | Voice mode | Working, on open-source speech that runs locally: Whisper (`base.en`, via faster-whisper) hears and Piper (`en_US-lessac-medium`) speaks, so nothing said leaves the machine. Hold Space or tap, speak, and the answer is read aloud while the app moves behind it (press V). Checked in a real browser: three spoken questions heard correctly and answered in about 4 s each. Falls back to the browser's speech if the models aren't installed | Not yet tried with a physical microphone |
 | Understanding free speech | Working on a local open-source language model through Ollama (`qwen2.5:7b`; `backend/app/brain.py`). It turns what you say into a command (needs, budget, place, qualities such as safe streets or near a bus stop) and words answers from retrieved facts; it never supplies facts. About 4 s per turn on an M-series Mac. Without Ollama it falls back to keyword rules | `ollama pull qwen2.5:7b` |
@@ -101,7 +101,8 @@ python -m pytest tests                       # 23 tests, under a second, no netw
 
 Useful demo links: `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),
 `?unit=yBnqSBNHtTb&tab=score` (furniture found in a scan), `?home=p9180689&route=pharmacy` (route), `?panel=move` (relocation),
-`?home=p9180689&outside=1` (orbit the building in 3D), `?home=h238672879&outside=1` (drone splat).
+`?home=p9180689&outside=1` (orbit the building in 3D), `?home=h238672879&outside=1` (drone splat),
+`?unit=5d9pvDHZMhC&tab=tour` (zone alerts in the 3D tour: walk to the bathroom door), `?unit=TAJdsi5EGmq&tab=tour&needs=blind` (furnished home, blind).
 
 ## Data and keys: never commit them
 

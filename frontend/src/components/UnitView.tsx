@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import FloorPlan, { FIXTURE_COLOR, HEAT } from './FloorPlan'
+import FloorPlan from './FloorPlan'
+import { DOOR, FIXTURE_COLOR, HEAT } from '../colors'
 import Tour3D from './Tour3D'
 import MatterportPlan from './MatterportPlan'
 import { fetchFurnishScore, fetchNarration, fetchUnit, fetchUnitCustom, planFurnishing, type Meta } from '../api'
@@ -241,7 +242,7 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                     </span>
                   )}
                   <span>
-                    <i style={{ background: '#14532d' }} /> door label: estimated clear width
+                    <i style={{ background: DOOR.pass.fill }} /> door label: estimated clear width (lighter = narrower)
                   </span>
                 </p>
               </div>

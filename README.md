@@ -41,6 +41,13 @@ Built-ins (counters, kitchen islands, vanities, toilets, tubs) and the stairs th
 the first time a home is opened (`python -m pipeline.fixtures <model_id>`; `python -m pipeline.score_units --meshes` rescores the
 homes whose mesh is cached). In a furnished scan a kitchen table can be counted as a built-in.
 
+Colors: every heat map (the apartment plan, the 3D tour floor) uses one violet scale, deep where a space works well
+for the need and pale with hatching where it doesn't, never red or green; each need has its own hue on the neighborhood
+map (wheelchair blue, blind plum, deaf pink, older adults gold). Building markers keep green / orange / red score bands
+(75+, 50-74, under 50; yellow when selected), and the "Only homes scoring 75 or more" filter matches the green band.
+The 3D tour's zone alerts still flash red and amber. All values are in `frontend/src/colors.ts`, checked for
+color-blind separation.
+
 Known gaps: building approach (entrance steps, parking) is not checked yet; LA has no street-level data cached; LangChain deepagents and Photon are not wired.
 
 ## Repo layout

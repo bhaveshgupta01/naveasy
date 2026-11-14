@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import MapView, { CITY_VIEW, scoreColor, type MapTarget } from './components/MapView'
+import MapView, { CITY_VIEW, type MapTarget } from './components/MapView'
+import { scoreColor } from './colors'
 import BuildingPanel from './components/BuildingPanel'
 import UnitView from './components/UnitView'
 import RelocatePanel from './components/RelocatePanel'
@@ -87,7 +88,7 @@ export default function App() {
     const rent = Number(maxRent) || 0
     return all
       .map((b) => ({ ...b, combined: combine(b.scores, profiles, how) }))
-      .filter((b) => (!passingOnly || b.combined.score >= 70) && (!measuredOnly || b.measured_inside) && (!rent || (b.rent_min != null && b.rent_min <= rent)))
+      .filter((b) => (!passingOnly || b.combined.score >= 75) && (!measuredOnly || b.measured_inside) && (!rent || (b.rent_min != null && b.rent_min <= rent)))
       .sort((a, b) => b.combined.score - a.combined.score || Number(b.measured_inside) - Number(a.measured_inside))
   }, [all, profiles, how, passingOnly, measuredOnly, maxRent])
 
@@ -331,7 +332,7 @@ export default function App() {
           <>
             <div className="filters">
               <label className="check">
-                <input type="checkbox" checked={passingOnly} onChange={(e) => setPassingOnly(e.target.checked)} /> Only homes scoring 70 or more
+                <input type="checkbox" checked={passingOnly} onChange={(e) => setPassingOnly(e.target.checked)} /> Only homes scoring 75 or more
               </label>
               <label className="check">
                 <input type="checkbox" checked={measuredOnly} onChange={(e) => setMeasuredOnly(e.target.checked)} /> Only homes measured inside
@@ -530,7 +531,8 @@ export default function App() {
             </>
           )}
           <span>
-            <i className="dot" style={{ background: '#1f8a4c' }} /> 75+ <i className="dot" style={{ background: '#d98a00' }} /> 50–74 <i className="dot" style={{ background: '#c62828' }} /> under 50
+            <i className="dot" style={{ background: scoreColor(80) }} /> 75+ <i className="dot" style={{ background: scoreColor(60) }} /> 50–74{' '}
+            <i className="dot" style={{ background: scoreColor(30) }} /> under 50
           </span>
           <span>
             <i className="dot" style={{ background: '#555' }} /> measured inside <i className="dot hollow" /> building only

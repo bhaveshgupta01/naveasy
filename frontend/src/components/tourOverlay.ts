@@ -9,6 +9,7 @@
 import * as THREE from 'three'
 import type { Profile, Unit } from '../types'
 import { roomAt, type Level } from '../zones'
+import { DOOR, FIT, HATCH, INK, NEED_COLOR } from '../colors'
 
 export interface Pose {
   position: { x: number; y: number; z: number }
@@ -20,18 +21,42 @@ export interface Pose {
 // Model API coordinates are (east, north, up); the viewer uses (east, up, -north).
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, z, -y)
 
-// heat values 2 problem, 3 caution, 4 good as [r, g, b, alpha]
+// heat values 2 doesn't work, 3 tight, 4 works well, on the violet fit scale, as [r, g, b, alpha]
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
 const CELL: Record<number, [number, number, number, number]> = {
-  2: [255, 45, 45, 125],
-  3: [255, 176, 32, 115],
-  4: [52, 199, 89, 80],
+  2: [...rgb(FIT.pale), 120],
+  3: [...rgb(FIT.mid), 115],
+  4: [...rgb(FIT.deep), 95],
 }
-export const LEVEL_COLOR: Record<Level, string> = { red: '#ff2d2d', amber: '#ffb020', green: '#34c759', none: '#ffffff' }
-const PATH_COLOR: Partial<Record<Profile, string>> = { blind: '#9b6bff', older: '#2ecc71' }
+const STRIPE = rgb(HATCH)
+// the hover ring: the zone alerts keep red and amber (they flash on screen); a spot that works shows light violet
+export const LEVEL_COLOR: Record<Level, string> = { red: '#ff2d2d', amber: '#ffb020', green: '#d9c8ff', none: '#ffffff' }
+const PATH_COLOR: Partial<Record<Profile, string>> = { blind: NEED_COLOR.blind, older: NEED_COLOR.older }
+
+// pale with ink stripes: "doesn't work", the same look as those cells on the floor
+function stripes(): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = FIT.pale
+  ctx.fillRect(0, 0, 64, 64)
+  ctx.strokeStyle = HATCH
+  ctx.lineWidth = 9
+  for (let k = -64; k < 128; k += 24) {
+    ctx.beginPath()
+    ctx.moveTo(k, 64)
+    ctx.lineTo(k + 64, 0)
+    ctx.stroke()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
 const WALL_H = 2.5
 
 // Labels keep the same size on screen at any distance, like Matterport's own tags.
-function label(text: string, color: string, scale = 1): THREE.Sprite {
+function label(text: string, color: string, scale = 1, ink = '#fff'): THREE.Sprite {
   const c = document.createElement('canvas')
   const ctx = c.getContext('2d')!
   ctx.font = '700 44px system-ui, sans-serif'
@@ -43,7 +68,7 @@ function label(text: string, color: string, scale = 1): THREE.Sprite {
   ctx.beginPath()
   ctx.roundRect(0, 0, w, 68, 16)
   ctx.fill()
-  ctx.fillStyle = '#fff'
+  ctx.fillStyle = ink
   ctx.textBaseline = 'middle'
   ctx.fillText(text, 18, 36)
   const tex = new THREE.CanvasTexture(c)
@@ -154,7 +179,7 @@ export class TourOverlay {
     }
 
     if (opts.heat) {
-      // the heat map as a texture on the floor; red cells get hazard stripes
+      // the heat map as a texture on the floor; "doesn't work" cells get ink stripes
       const g = unit.heat
       const c = document.createElement('canvas')
       c.width = g.width
@@ -169,9 +194,9 @@ export class TourOverlay {
           if (!col) continue
           const k = ((g.height - 1 - j) * g.width + i) * 4 // canvas row 0 is the north edge
           const band = v === 2 && Math.floor((i + j) / stripe) % 2 === 0
-          img.data[k] = band ? 120 : col[0]
-          img.data[k + 1] = band ? 0 : col[1]
-          img.data[k + 2] = band ? 0 : col[2]
+          img.data[k] = band ? STRIPE[0] : col[0]
+          img.data[k + 1] = band ? STRIPE[1] : col[1]
+          img.data[k + 2] = band ? STRIPE[2] : col[2]
           img.data[k + 3] = band ? 150 : col[3]
         }
       ctx.putImageData(img, 0, 0)
@@ -193,18 +218,22 @@ export class TourOverlay {
       // door gates: a colored curtain in each doorway and its clear width (wheelchair), or a slim frame (others)
       for (const d of unit.doors) {
         if (!d.is_door || (d.exterior && !d.entry)) continue
-        const color = d.status === 'pass' ? '#1f9d55' : d.status === 'tight' ? '#ffb020' : '#ff2d2d'
+        const chip = DOOR[d.status]
         if (p === 'wheelchair' && d.status !== 'pass') {
+          // a curtain in the doorway: striped when the chair can't pass, mid violet when it's tight
+          const fail = d.status === 'fail'
+          const tex = fail ? stripes() : null
+          tex?.repeat.set(d.width_m * 3, 6)
           const gate = new THREE.Mesh(
             new THREE.PlaneGeometry(d.width_m, 2.0),
-            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }),
+            new THREE.MeshBasicMaterial({ color: fail ? '#ffffff' : FIT.mid, map: tex, transparent: true, opacity: fail ? 0.5 : 0.32, depthWrite: false, side: THREE.DoubleSide }),
           )
           gate.position.copy(V(d.x, d.y, z0 + 1.0))
           gate.rotation.y = (d.angle_deg * Math.PI) / 180
           this.content.add(gate)
         }
         if (p === 'wheelchair' && !d.minor) {
-          const tag = label(`${Math.round(d.est_clear_in)}″${d.status === 'fail' ? ' too narrow' : d.status === 'tight' ? ' tight' : ''}`, color)
+          const tag = label(`${Math.round(d.est_clear_in)}″${d.status === 'fail' ? ' too narrow' : d.status === 'tight' ? ' tight' : ''}`, chip.fill, 1, chip.text)
           tag.position.copy(V(d.x, d.y, z0 + 2.15))
           this.content.add(tag)
         }
@@ -213,7 +242,7 @@ export class TourOverlay {
         for (const t of unit.turning_circles) {
           const ring = new THREE.Mesh(
             new THREE.RingGeometry(t.r - 0.05, t.r, 64).rotateX(-Math.PI / 2),
-            new THREE.MeshBasicMaterial({ color: '#2f7bff', transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
+            new THREE.MeshBasicMaterial({ color: NEED_COLOR.wheelchair, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
           )
           ring.position.copy(V(t.x, t.y, z0 + 0.04))
           this.content.add(ring)
@@ -223,21 +252,23 @@ export class TourOverlay {
         for (const path of unit.paths.filter((q) => (p === 'older' ? q.from === 'bed' || q.to === 'kitchen' : q.from === 'entry'))) {
           if (path.points.length < 2) continue
           const pts = path.points.map(([x, y]) => V(x, y, z0 + 0.06))
-          const tube = new THREE.Mesh(
-            new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), Math.min(400, pts.length * 3), 0.035, 6),
-            new THREE.MeshBasicMaterial({ color: pc, depthWrite: false }),
-          )
-          this.content.add(tube)
+          // the need's color on a white casing, so the route reads on every shade of the floor
+          const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal')
+          const n = Math.min(400, pts.length * 3)
+          const casing = new THREE.Mesh(new THREE.TubeGeometry(curve, n, 0.055, 6), new THREE.MeshBasicMaterial({ color: '#ffffff', depthWrite: false }))
+          const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, n, 0.035, 6), new THREE.MeshBasicMaterial({ color: pc, depthWrite: false }))
+          tube.renderOrder = 2
+          this.content.add(casing, tube)
         }
       if (p === 'deaf' && unit.view_points?.seat) {
         const [sx, sy] = unit.view_points.seat
         const seat = new THREE.Mesh(
           new THREE.CylinderGeometry(0.28, 0.28, 0.04, 32),
-          new THREE.MeshBasicMaterial({ color: '#2f6fd6', transparent: true, opacity: 0.85, depthWrite: false }),
+          new THREE.MeshBasicMaterial({ color: NEED_COLOR.deaf, transparent: true, opacity: 0.85, depthWrite: false }),
         )
         seat.position.copy(V(sx, sy, z0 + 0.05))
         this.content.add(seat)
-        const tag = label('main seat', '#2f6fd6', 0.8)
+        const tag = label('main seat', NEED_COLOR.deaf, 0.8, INK)
         tag.position.copy(V(sx, sy, z0 + 1.2))
         this.content.add(tag)
       }
@@ -245,7 +276,7 @@ export class TourOverlay {
       for (const q of unit.problems.filter((x) => x.severity !== 'low' && x.floor === unit.floor)) {
         const ring = new THREE.Mesh(
           new THREE.RingGeometry(0.3, 0.42, 48).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial({ color: q.severity === 'high' ? '#ff2d2d' : '#ffb020', transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+          new THREE.MeshBasicMaterial({ color: q.severity === 'high' ? '#ffffff' : '#e0d4ff', transparent: true, depthWrite: false, side: THREE.DoubleSide }),
         )
         ring.position.copy(V(q.x, q.y, z0 + 0.05))
         this.content.add(ring)

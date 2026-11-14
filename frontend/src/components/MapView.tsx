@@ -6,6 +6,7 @@ import { cellToBoundary, cellToLocalIj, latLngToCell } from 'h3-js'
 import { API, TILE_URL, type HexRow } from '../api'
 import type { Feature, FeatureCollection } from 'geojson'
 import type { Building, Route } from '../types'
+import { scoreColor } from '../colors'
 
 maplibregl.setWorkerUrl(workerUrl)
 
@@ -42,11 +43,6 @@ interface Props {
 // Past this zoom, a home with a drone model in the middle of the screen takes over the map view.
 export const DRONE_ZOOM = 18
 
-export function scoreColor(score: number): string {
-  if (score >= 75) return '#1f8a4c'
-  if (score >= 50) return '#d98a00'
-  return '#c62828'
-}
 
 // Which need a cell shows when several are selected: a regular repeating pattern over the hexagon grid
 // (stripes for 2, the classic three-coloring for 3, a 2 x 2 tile for 4).

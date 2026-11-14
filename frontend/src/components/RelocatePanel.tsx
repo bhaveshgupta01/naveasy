@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { relocate } from '../api'
 import { CATEGORIES, type Profile, type Relocation } from '../types'
-import { scoreColor } from './MapView'
+import { scoreColor } from '../colors'
 
 interface Props {
   profiles: Profile[]

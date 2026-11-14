@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { aerialUrl, fetchBuilding, fetchCrosswalk, fetchRoute, obliqueUrl } from '../api'
 import { CATEGORIES, PROFILES, scoreWord, type BuildingDetail, type Category, type Profile, type Route } from '../types'
-import { scoreColor } from './MapView'
+import { scoreColor } from '../colors'
 import Outside3D from './Outside3D'
 
 const COMPONENT_LABEL: Record<string, string> = {

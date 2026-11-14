@@ -1,4 +1,5 @@
 // Shapes from docs/API_CONTRACT.md. Keep in sync with backend/app/main.py.
+import { NEED_COLOR } from './colors'
 
 export type Profile = 'wheelchair' | 'blind' | 'deaf' | 'older'
 export type Confidence = 'low' | 'medium' | 'high'
@@ -246,11 +247,12 @@ export type UiAction =
   | { type: 'show_relocation'; request: Record<string, unknown> }
   | { type: 'open_drone'; id: string }
 
+// each need's identity color (no red or green: see colors.ts)
 export const PROFILES: { id: Profile; label: string; short: string; color: string }[] = [
-  { id: 'wheelchair', label: 'Wheelchair', short: 'Wheelchair', color: '#d9363e' },
-  { id: 'blind', label: 'Blind or low vision', short: 'Blind', color: '#7b4fd6' },
-  { id: 'deaf', label: 'Deaf or hard of hearing', short: 'Deaf', color: '#2f6fd6' },
-  { id: 'older', label: 'Older adults, low stamina', short: 'Older adults', color: '#2e9e5b' },
+  { id: 'wheelchair', label: 'Wheelchair', short: 'Wheelchair', color: NEED_COLOR.wheelchair },
+  { id: 'blind', label: 'Blind or low vision', short: 'Blind', color: NEED_COLOR.blind },
+  { id: 'deaf', label: 'Deaf or hard of hearing', short: 'Deaf', color: NEED_COLOR.deaf },
+  { id: 'older', label: 'Older adults, low stamina', short: 'Older adults', color: NEED_COLOR.older },
 ]
 
 export const CATEGORIES: { id: Category; label: string }[] = [

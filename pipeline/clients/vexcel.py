@@ -105,3 +105,10 @@ def embedding_search(area_wkt: str, text: str | None = None, location_wkt: str |
     r = _post("embedding/extract", body)
     r.raise_for_status()
     return r.json()["features"]
+
+
+def dsm(lat: float, lon: float, buffer_m: float = 80) -> bytes:
+    """Surface heights (roofs, trees, ground) as a GeoTIFF, about 7.5 cm per pixel, EPSG:3857, float32 meters."""
+    r = _get("dsm/extract", wkt=point(lat, lon), srid=4326, crop="bounding_box", **{"buffer-meter": buffer_m})
+    r.raise_for_status()
+    return r.content

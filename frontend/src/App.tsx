@@ -1,49 +1,229 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import MapView, { scoreColor } from './components/MapView'
-import FloorPlan from './components/FloorPlan'
-import { combine, fetchBuildings, fetchUnit } from './api'
-import { PROFILES, type Building, type Profile, type Unit } from './types'
+import MapView, { CITY_VIEW, scoreColor, type MapTarget } from './components/MapView'
+import BuildingPanel from './components/BuildingPanel'
+import UnitView from './components/UnitView'
+import RelocatePanel from './components/RelocatePanel'
+import ChatPanel from './components/ChatPanel'
+import { combine, fetchBuildings, fetchHex, fetchHexes, fetchMeta, relocate, type HexRow, type Meta } from './api'
+import { CATEGORIES, PROFILES, scoreWord, type Building, type Category, type City, type FurnishPlan, type Profile, type Relocation, type Route, type UiAction } from './types'
 import './App.css'
 
-// Starter UI: profile menu -> map of homes -> building panel -> apartment heat map.
-// See docs/FRONTEND_BRIEF.md for the full set of screens to build.
+type Tab = 'homes' | 'move' | 'ask' | 'story'
+interface OpenUnit {
+  modelId: string
+  profile?: Profile
+  tab?: 'heat' | 'score' | 'plan' | 'tour'
+  plan?: FurnishPlan
+  autoPlanFrom?: string
+}
+
 export default function App() {
+  const [meta, setMeta] = useState<Meta | null>(null)
+  const [city, setCity] = useState<City>('houston')
   const [all, setAll] = useState<Building[]>([])
+  const [hexes, setHexes] = useState<HexRow[]>([])
   const [profiles, setProfiles] = useState<Profile[]>(['wheelchair'])
   const [how, setHow] = useState<'min' | 'avg'>('min')
   const [passingOnly, setPassingOnly] = useState(false)
+  const [measuredOnly, setMeasuredOnly] = useState(false)
+  const [maxRent, setMaxRent] = useState('')
+  const [showHexes, setShowHexes] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [unit, setUnit] = useState<Unit | null>(null)
-  const [furnished, setFurnished] = useState(false)
+  const [highlighted, setHighlighted] = useState<string[]>([])
+  const [openUnit, setOpenUnit] = useState<OpenUnit | null>(null)
+  const [route, setRoute] = useState<Route | null>(null)
+  const [autoRoute, setAutoRoute] = useState<{ category: Category; profile: Profile } | null>(null)
+  const [target, setTarget] = useState<MapTarget | null>(null)
+  const [tab, setTab] = useState<Tab>('homes')
+  const [relocation, setRelocation] = useState<Relocation | null>(null)
+  const [hexInfo, setHexInfo] = useState<{ cell: string; text: string[]; live: boolean; score: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [contrast, setContrast] = useState(false)
+  const [step, setStep] = useState(-1)
+  const [aerial, setAerial] = useState(true)
+  const [threeD, setThreeD] = useState(true)
+
+  const fly = useCallback((center: [number, number], zoom: number) => setTarget({ center, zoom, n: Date.now() }), [])
+
+  // Deep links for demos and sharing: ?city=houston&needs=wheelchair,deaf&home=p123&unit=<model>&tab=plan&route=pharmacy&panel=move
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const needs = (q.get('needs') ?? '').split(',').filter((p): p is Profile => PROFILES.some((x) => x.id === p))
+    if (q.get('city') === 'la') switchCity('la')
+    if (needs.length) setProfiles(needs)
+    if (q.get('home')) setSelectedId(q.get('home'))
+    if (q.get('unit')) setOpenUnit({ modelId: q.get('unit')!, tab: (q.get('tab') as OpenUnit['tab']) ?? undefined })
+    if (q.get('route') && q.get('home')) setAutoRoute({ category: q.get('route') as Category, profile: needs[0] ?? 'wheelchair' })
+    if (q.get('panel')) setTab(q.get('panel') as Tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
-    fetchBuildings().then(setAll).catch((e) => setError(String(e)))
+    fetchMeta().then(setMeta).catch(() => setError('The NavEasy API is not running. Start it with: uvicorn backend.app.main:app --port 8000'))
   }, [])
+  useEffect(() => {
+    setAll([])
+    fetchBuildings(city).then(setAll).catch((e) => setError(String(e.message ?? e)))
+  }, [city])
+  useEffect(() => {
+    if (!profiles.length) return setHexes([])
+    fetchHexes(city, profiles, how).then(setHexes).catch(() => setHexes([]))
+  }, [city, profiles, how])
 
   const buildings = useMemo(() => {
     if (!profiles.length) return []
+    const rent = Number(maxRent) || 0
     return all
       .map((b) => ({ ...b, combined: combine(b.scores, profiles, how) }))
-      .filter((b) => !passingOnly || b.combined.score >= 60)
-      .sort((a, b) => b.combined.score - a.combined.score)
-  }, [all, profiles, how, passingOnly])
+      .filter((b) => (!passingOnly || b.combined.score >= 70) && (!measuredOnly || b.measured_inside) && (!rent || (b.rent_min != null && b.rent_min <= rent)))
+      .sort((a, b) => b.combined.score - a.combined.score || Number(b.measured_inside) - Number(a.measured_inside))
+  }, [all, profiles, how, passingOnly, measuredOnly, maxRent])
 
-  const selected = buildings.find((b) => b.id === selectedId) ?? null
+  function switchCity(c: City) {
+    setCity(c)
+    setSelectedId(null)
+    setRoute(null)
+    setHighlighted([])
+    setHexInfo(null)
+    fly(CITY_VIEW[c].center, CITY_VIEW[c].zoom)
+  }
 
-  useEffect(() => {
-    if (!selected) return setUnit(null)
-    fetchUnit('u_sample_001', profiles[0] ?? 'wheelchair', furnished).then(setUnit).catch((e) => setError(String(e)))
-  }, [selected, furnished, profiles])
+  const select = useCallback(
+    (id: string | null) => {
+      setSelectedId(id)
+      setRoute(null)
+      setAutoRoute(null)
+      const b = id && all.find((x) => x.id === id)
+      if (b) fly([b.lon, b.lat], 15.5)
+    },
+    [all, fly],
+  )
 
-  const onSelect = useCallback((id: string) => setSelectedId(id), [])
+  const onHex = useCallback(
+    (cell: string) => {
+      fetchHex(city, cell)
+        .then((c) => {
+          const p = profiles[0] ?? 'wheelchair'
+          const rows = CATEGORIES.filter((k) => c.minutes[p][k.id] != null).map((k) => `${k.label} ${Math.round(c.minutes[p][k.id])} min`)
+          setHexInfo({ cell, text: rows, live: c.live, score: Math.min(...profiles.map((q) => c.scores[q].score)) })
+        })
+        .catch(() => setHexInfo(null))
+    },
+    [city, profiles],
+  )
+
+  const runActions = useCallback(
+    (actions: UiAction[]) => {
+      for (const a of actions) {
+        if (a.type === 'set_map_view') {
+          if (a.city && a.city !== city) setCity(a.city)
+          if (a.profiles?.length) setProfiles(a.profiles)
+          fly(a.center, a.zoom)
+        } else if (a.type === 'highlight_buildings') setHighlighted(a.ids)
+        else if (a.type === 'open_building') setSelectedId(a.id)
+        else if (a.type === 'open_unit') setOpenUnit({ modelId: a.model_id, profile: a.profile, tab: a.tab as OpenUnit['tab'], plan: a.plan })
+        else if (a.type === 'show_route') {
+          setSelectedId(a.building_id)
+          setAutoRoute({ category: a.category, profile: a.profile })
+        } else if (a.type === 'show_relocation') {
+          setTab('move')
+          relocate(a.request).then(setRelocation).catch(() => undefined)
+        }
+      }
+    },
+    [city, fly],
+  )
+
+  const hero = meta?.hero as (Meta['hero'] & { problem_building?: string; splat_home?: string }) | undefined
+  const story: { title: string; text: string; run: () => void }[] = [
+    {
+      title: 'Where should she live?',
+      text: 'Her LA address is measured for a wheelchair, then matched to Houston neighborhoods where daily places are as close.',
+      run: () => {
+        setProfiles(['wheelchair'])
+        setOpenUnit(null)
+        setSelectedId(null)
+        relocate({ origin: { address: hero?.la_origin }, profiles: ['wheelchair'] })
+          .then((r) => {
+            setRelocation(r)
+            if (r.target !== city) switchCity(r.target)
+            setHighlighted(r.candidates.flatMap((c) => c.homes.map((h) => h.id)))
+            if (r.candidates[1]) fly([r.candidates[1].lon, r.candidates[1].lat], 13.6)
+          })
+          .catch((e) => setError(String(e.message ?? e)))
+      },
+    },
+    {
+      title: 'The neighborhood, in 3D',
+      text: 'Midtown from Vexcel aerial photos and measured heights. Each pillar is a home; taller and greener means a better score.',
+      run: () => {
+        setOpenUnit(null)
+        setSelectedId(null)
+        setAerial(true)
+        setThreeD(true)
+        fly([-95.3799, 29.7436], 16.3)
+      },
+    },
+    {
+      title: 'A home, and the way to the pharmacy',
+      text: 'The Hopkins: building evidence, angled aerial photos, and a wheelchair route with its slope and crossings.',
+      run: () => {
+        setOpenUnit(null)
+        if (hero?.problem_building) {
+          setSelectedId(hero.problem_building)
+          setAutoRoute({ category: 'pharmacy', profile: 'wheelchair' })
+        }
+      },
+    },
+    {
+      title: 'Inside: the doorway that fails',
+      text: 'Every doorway measured from the Matterport scan. The bathroom door is about 29 in, so a wheelchair can’t get in.',
+      run: () => hero?.problem_unit && setOpenUnit({ modelId: hero.problem_unit, profile: 'wheelchair', tab: 'heat' }),
+    },
+    {
+      title: 'See it in the 3D scan',
+      text: 'The same problems pinned inside Matterport’s 3D tour.',
+      run: () => hero?.problem_unit && setOpenUnit({ modelId: hero.problem_unit, profile: 'wheelchair', tab: 'tour' }),
+    },
+    {
+      title: 'Furniture found in a lived-in home',
+      text: 'Pieces recovered by comparing the furnished and furniture-removed scans, with what they cost in points.',
+      run: () => hero?.furnished_unit && setOpenUnit({ modelId: hero.furnished_unit, profile: 'wheelchair', tab: 'score' }),
+    },
+    {
+      title: 'Her furniture, planned into a unit that works',
+      text: 'The same pieces placed so every room stays reachable, against a typical layout.',
+      run: () => hero?.plan_target && setOpenUnit({ modelId: hero.plan_target, profile: 'wheelchair', tab: 'plan', autoPlanFrom: hero.furnished_unit }),
+    },
+  ]
+
   const toggle = (p: Profile) => setProfiles((ps) => (ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p]))
+  const hexColor = profiles.length === 1 ? PROFILES.find((p) => p.id === profiles[0])!.color : '#3f4a5a'
+  const stats = meta?.cities?.[city]
+  const pins = relocation && relocation.target === city ? relocation.candidates.map((c, i) => ({ lon: c.lon, lat: c.lat, label: String(i + 1) })) : []
 
   return (
-    <div className="app">
-      <aside className="sidebar" aria-label="Accessibility needs">
-        <h1>NavEasy</h1>
-        <p className="muted">Houston · sample data</p>
+    <div className={contrast ? 'app contrast' : 'app'}>
+      <a className="skip" href="#homes-list">
+        Skip to the list of homes
+      </a>
+      <aside className="sidebar">
+        <header>
+          <h1>
+            Nav<span>Easy</span>
+          </h1>
+          <p className="tagline">Can I live here independently?</p>
+        </header>
+
+        <div className="seg" role="group" aria-label="City">
+          <button className={city === 'houston' ? 'on' : ''} aria-pressed={city === 'houston'} onClick={() => switchCity('houston')}>
+            Houston
+          </button>
+          <button className={city === 'la' ? 'on' : ''} aria-pressed={city === 'la'} onClick={() => switchCity('la')}>
+            Los Angeles
+          </button>
+        </div>
+
         <fieldset>
           <legend>My needs</legend>
           {PROFILES.map((p) => (
@@ -53,80 +233,225 @@ export default function App() {
               {p.label}
             </label>
           ))}
+          {profiles.length > 1 && (
+            <div className="row" role="radiogroup" aria-label="Combine several needs">
+              <label className="check">
+                <input type="radio" name="how" checked={how === 'min'} onChange={() => setHow('min')} /> Weakest need decides
+              </label>
+              <label className="check">
+                <input type="radio" name="how" checked={how === 'avg'} onChange={() => setHow('avg')} /> Average
+              </label>
+            </div>
+          )}
         </fieldset>
-        <fieldset>
-          <legend>Combine several needs</legend>
-          <label className="check">
-            <input type="radio" name="how" checked={how === 'min'} onChange={() => setHow('min')} /> Weakest need decides
-          </label>
-          <label className="check">
-            <input type="radio" name="how" checked={how === 'avg'} onChange={() => setHow('avg')} /> Average
-          </label>
-        </fieldset>
-        <label className="check">
-          <input type="checkbox" checked={passingOnly} onChange={(e) => setPassingOnly(e.target.checked)} /> Only homes
-          that pass (60+)
-        </label>
-        <h2>{buildings.length} homes</h2>
-        <ol className="list">
-          {buildings.slice(0, 15).map((b) => (
-            <li key={b.id}>
-              <button onClick={() => setSelectedId(b.id)} aria-pressed={b.id === selectedId}>
-                <span className="dot" style={{ background: scoreColor(b.combined!.score) }} aria-hidden />
-                {b.name} <strong>{b.combined!.score}</strong>
-              </button>
-            </li>
+
+        <div className="tabs" role="tablist">
+          {(
+            [
+              ['homes', 'Homes'],
+              ['move', 'Moving'],
+              ['ask', 'Ask'],
+              ['story', 'Guided demo'],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'tab on' : 'tab'} onClick={() => setTab(id)}>
+              {label}
+            </button>
           ))}
-        </ol>
-        {error && <p role="alert" className="error">{error}</p>}
+        </div>
+
+        {tab === 'homes' && (
+          <>
+            <div className="filters">
+              <label className="check">
+                <input type="checkbox" checked={passingOnly} onChange={(e) => setPassingOnly(e.target.checked)} /> Only homes scoring 70 or more
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={measuredOnly} onChange={(e) => setMeasuredOnly(e.target.checked)} /> Only homes measured inside
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={showHexes} onChange={(e) => setShowHexes(e.target.checked)} /> Neighborhood heat map
+              </label>
+              <label className="check">
+                Max rent $
+                <input className="small" inputMode="numeric" value={maxRent} onChange={(e) => setMaxRent(e.target.value.replace(/\D/g, ''))} aria-label="Maximum monthly rent" />
+              </label>
+            </div>
+            <h2 id="homes-list" tabIndex={-1}>
+              {buildings.length.toLocaleString()} homes
+              {stats && <span className="muted"> · {stats.measured_inside.toLocaleString()} measured inside</span>}
+            </h2>
+            <ol className="list">
+              {buildings.slice(0, 60).map((b) => (
+                <li key={b.id}>
+                  <button onClick={() => select(b.id)} aria-pressed={b.id === selectedId}>
+                    <span className="dot" style={{ background: scoreColor(b.combined!.score), opacity: b.measured_inside ? 1 : 0.35 }} aria-hidden />
+                    <span className="grow">
+                      {b.name}
+                      <br />
+                      <span className="muted">
+                        {scoreWord(b.combined!.score)}
+                        {b.measured_inside ? '' : ' · building only'}
+                        {b.locality_scores ? ` · neighborhood ${combine(b.locality_scores, profiles, how).score}` : ''}
+                        {b.rent_min ? ` · from $${b.rent_min.toLocaleString()}` : ''}
+                      </span>
+                    </span>
+                    <strong>{b.combined!.score}</strong>
+                  </button>
+                </li>
+              ))}
+            </ol>
+            {buildings.length > 60 && <p className="muted">Showing the top 60. Zoom the map or add filters to see others.</p>}
+          </>
+        )}
+        {tab === 'move' && (
+          <RelocatePanel
+            profiles={profiles}
+            defaultAddress={meta?.hero.la_origin}
+            result={relocation}
+            onResult={(r) => {
+              setRelocation(r)
+              if (r && r.target !== city) switchCity(r.target)
+              if (r?.candidates.length) setHighlighted(r.candidates.flatMap((c) => c.homes.map((h) => h.id)))
+            }}
+            onGo={(c, t) => {
+              if (t !== city) setCity(t)
+              fly([c.lon, c.lat], 14.2)
+            }}
+            onOpenHome={(id, t) => {
+              if (t !== city) setCity(t)
+              setSelectedId(id)
+            }}
+          />
+        )}
+        {tab === 'story' && (
+          <div className="story">
+            <p className="muted">
+              Maria uses a power wheelchair and is moving from Los Angeles to Houston. Each step runs live on the real data; nothing is pre-recorded.
+            </p>
+            <ol>
+              {story.map((s, i) => (
+                <li key={s.title}>
+                  <button
+                    aria-current={step === i ? 'step' : undefined}
+                    onClick={() => {
+                      setStep(i)
+                      s.run()
+                    }}
+                  >
+                    <span>
+                      <span className="n">{i + 1}.</span> <strong>{s.title}</strong>
+                    </span>
+                    <span className="muted">{s.text}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {tab === 'ask' && <ChatPanel context={{ city, profiles, selected_building: selectedId }} onActions={runActions} />}
+
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <footer>
+          <label className="check">
+            <input type="checkbox" checked={contrast} onChange={(e) => setContrast(e.target.checked)} /> High contrast
+          </label>
+          <p className="fine">
+            Estimates from 3D scans and public maps, never a certification. Grey or faint means no data, not “inaccessible”.
+            {meta?.doorways_measured ? ` ${meta.doorways_measured.toLocaleString()} doorways measured in ${meta.units_measured.toLocaleString()} scans.` : ''}
+          </p>
+        </footer>
       </aside>
 
       <main className="main">
-        <MapView buildings={buildings} selectedId={selectedId} onSelect={onSelect} />
+        <MapView
+          buildings={buildings}
+          hexes={hexes}
+          hexColor={hexColor}
+          showHexes={showHexes}
+          selectedId={selectedId}
+          highlighted={highlighted}
+          route={route}
+          target={target}
+          aerial={aerial}
+          threeD={threeD}
+          pins={pins}
+          onSelect={select}
+          onHex={onHex}
+        />
+        <div className="map-modes">
+          <div className="seg" role="group" aria-label="Base map">
+            <button className={aerial ? 'on' : ''} aria-pressed={aerial} onClick={() => setAerial(true)}>
+              Aerial
+            </button>
+            <button className={!aerial ? 'on' : ''} aria-pressed={!aerial} onClick={() => setAerial(false)}>
+              Streets
+            </button>
+          </div>
+          <div className="seg" role="group" aria-label="Map view">
+            <button className={threeD ? 'on' : ''} aria-pressed={threeD} onClick={() => setThreeD(true)}>
+              3D
+            </button>
+            <button className={!threeD ? 'on' : ''} aria-pressed={!threeD} onClick={() => setThreeD(false)}>
+              2D
+            </button>
+          </div>
+        </div>
+        <div className="map-legend" aria-label="Map legend">
+          <strong>{profiles.length === 1 ? PROFILES.find((p) => p.id === profiles[0])!.label : profiles.length ? `${profiles.length} needs, ${how === 'min' ? 'weakest decides' : 'average'}` : 'Pick a need'}</strong>
+          <span className="ramp" style={{ background: `linear-gradient(90deg, ${hexColor}10, ${hexColor}cc)` }} />
+          <span className="ramp-labels">
+            <span>neighborhood: low</span>
+            <span>high</span>
+          </span>
+          <span>
+            <i className="dot" style={{ background: '#1f8a4c' }} /> 75+ <i className="dot" style={{ background: '#d98a00' }} /> 50–74 <i className="dot" style={{ background: '#c62828' }} /> under 50
+          </span>
+          <span>
+            <i className="dot" style={{ background: '#555' }} /> measured inside <i className="dot hollow" /> building only
+          </span>
+          {threeD && <span className="muted">3D: zoom in and the city rises from Vexcel’s measured heights; each home is a pillar, taller = higher score</span>}
+        </div>
+        {hexInfo && (
+          <div className="hex-info" role="status">
+            <button className="close" onClick={() => setHexInfo(null)} aria-label="Close">
+              ×
+            </button>
+            <strong>Neighborhood score {hexInfo.score}</strong>
+            <span className="muted"> · {hexInfo.live ? 'routed walking times' : 'estimated from distance'}</span>
+            <br />
+            {hexInfo.text.join(' · ')}
+          </div>
+        )}
       </main>
 
-      {selected && (
-        <aside className="panel" aria-label={`Details for ${selected.name}`}>
-          <button className="close" onClick={() => setSelectedId(null)} aria-label="Close">
-            ×
-          </button>
-          <h2>{selected.name}</h2>
-          <p className="muted">
-            {selected.stories} stories · {selected.elevator ? 'elevator' : selected.walkup ? 'walk-up' : 'no elevator data'} ·
-            built {selected.year_built} · ${selected.rent_min}–${selected.rent_max}
-          </p>
-          <table className="scores">
-            <tbody>
-              {PROFILES.map((p) => (
-                <tr key={p.id}>
-                  <th scope="row">{p.label}</th>
-                  <td>{selected.scores[p.id].score}</td>
-                  <td className="muted">{selected.scores[p.id].confidence} confidence</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <h3>Inside a scanned unit</h3>
-          <label className="check">
-            <input type="checkbox" checked={furnished} onChange={(e) => setFurnished(e.target.checked)} /> With furniture
-          </label>
-          {unit && (
-            <>
-              <FloorPlan unit={unit} />
-              <p className="legend">
-                <span style={{ background: '#9fdc9f' }} /> 36 in clear <span style={{ background: '#f5cf73' }} /> 32–36 in{' '}
-                <span style={{ background: '#f08a8a' }} /> under 32 in
-              </p>
-              <ul className="problems">
-                {unit.problems.map((p) => (
-                  <li key={p.id} className={p.severity}>
-                    {p.text}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </aside>
+      {selectedId && (
+        <BuildingPanel
+          id={selectedId}
+          profiles={profiles.length ? profiles : ['wheelchair']}
+          route={route}
+          autoRoute={autoRoute}
+          onRoute={setRoute}
+          onOpenUnit={(modelId) => setOpenUnit({ modelId })}
+          onClose={() => select(null)}
+        />
+      )}
+      {openUnit && (
+        <UnitView
+          key={openUnit.modelId + (openUnit.tab ?? '')}
+          modelId={openUnit.modelId}
+          profiles={profiles}
+          initialProfile={openUnit.profile}
+          initialTab={openUnit.tab}
+          initialPlan={openUnit.plan}
+          autoPlanFrom={openUnit.autoPlanFrom}
+          meta={meta}
+          onClose={() => setOpenUnit(null)}
+        />
       )}
     </div>
   )

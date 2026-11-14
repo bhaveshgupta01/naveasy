@@ -21,16 +21,19 @@ DEFURNISHED = "matterport.model.defurnished"
 GEOMETRY_QUERY = """
 query($id: ID!) {
   model(id: $id) {
-    id name
+    id name created
     geocoordinates { latitude longitude }
+    defurnished: view(type: "matterport.model.defurnished") { id }
+    panoLocations { id position { x y z } }
     floors {
       id label sequence
       vertices { id position { x y } }
       edges { id type thickness vertices { id }
-              openings { type width height lowerElevation relativeCenter } }
+              openings { type label width height lowerElevation relativeCenter } }
       rooms { id label classifications { label confidence }
               boundary { edges { id } }
-              dimensions(units: metric) { areaFloor width depth height } }
+              panoLocations { id }
+              dimensions: dimensionEstimates(units: metric) { areaFloor: area width depth height lowerElevation } }
     }
   }
 }"""
@@ -55,9 +58,18 @@ def gql(query: str, variables: dict | None = None) -> dict:
     return body
 
 
-def geometry(model_id: str) -> dict:
-    """Floors with wall graph, openings and rooms (meters)."""
-    return gql(GEOMETRY_QUERY, {"id": model_id})["data"]["model"]
+def geometry(model_id: str, cache: bool = True) -> dict | None:
+    """Floors with wall graph, openings and rooms (meters). Cached in data/matterport/<id>.json."""
+    import json
+    from . import ROOT
+    path = ROOT / "data" / "matterport" / f"{model_id}.json"
+    if cache and path.exists():
+        return json.loads(path.read_text())
+    model = gql(GEOMETRY_QUERY, {"id": model_id})["data"]["model"]
+    if cache:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(model))
+    return model
 
 
 def defurnished_view_id(model_id: str) -> str | None:

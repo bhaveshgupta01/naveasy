@@ -63,15 +63,14 @@ def places_near(lat: float, lon: float, radius_m: int = 1500) -> list[dict]:
 def _matches(tags: dict, filters: list[str]) -> bool:
     import re
     for f in filters:
-        k, op, v = re.match(r'\[(\w+)(~?=)"?([^"\]]+)"?\]', f).groups()
+        k, op, v = re.match(r'\[(\w+)(~|=)"?([^"\]]+)"?\]', f).groups()
         if k in tags and (tags[k] == v if op == "=" else re.search(v, tags[k])):
             return True
     return False
 
 
 def _valhalla(endpoint: str, payload: dict) -> dict:
-    r = with_backoff(lambda: requests.get(f"{VALHALLA}/{endpoint}", params={"json": json.dumps(payload)},
-                                          headers=UA, timeout=60))
+    r = with_backoff(lambda: requests.post(f"{VALHALLA}/{endpoint}", json=payload, headers=UA, timeout=60))
     r.raise_for_status()
     return r.json()
 

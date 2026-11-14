@@ -1,31 +1,37 @@
 # NavEasy API contract
 
-The frontend and backend agree on these shapes. Today every endpoint returns the
-**synthetic** files in `frontend/public/mock/` (made by `scripts/make_mock.py`);
-real data will arrive in the same shapes, so UI code doesn't change.
+The frontend and backend agree on these shapes. The API serves real data built by the pipeline
+(see the README); if `data/` hasn't been built it falls back to the synthetic files in `frontend/public/mock/`.
 
-- Base URL (dev): `http://localhost:8000` — set `VITE_API_BASE` in `frontend/.env.local`.
-  Without it, the frontend reads `/mock/*.json` directly.
-- `profiles` is a comma list of `wheelchair`, `blind`, `deaf`, `older`.
+- Base URL (dev): `http://localhost:8000` (override with `VITE_API_BASE` in `frontend/.env.local`).
+- `profiles` is a comma list of `wheelchair`, `blind`, `deaf`, `older`. `city` is `houston` or `la`.
 - Every score is `{ "score": 0-100, "confidence": "low" | "medium" | "high" }`.
 - Several profiles combine by `min` (weakest need decides, default) or `avg`.
 - Map coordinates are WGS84 `lat` / `lon`. Floor plans are in **meters, y pointing up**.
 
 ## Endpoints
 
-| Method and path | Returns | Mock file |
-| --- | --- | --- |
-| `GET /health` | `{ ok, mode }` | – |
-| `GET /map/buildings?profiles&combine&passing_only&min_score` | Building dots with per-profile scores and `combined` | `buildings.json` |
-| `GET /map/hexes?profiles&combine` | H3 res-9 cells with scores, `combined`, and minutes to essentials per profile | `hexes.json` |
-| `GET /buildings/{id}` | One building + `components`, `units[]` (Matterport model ids), `nearest[]` essentials | `buildings.json` |
-| `GET /units/{model_id}/heatmap?profile&furnished` | Floor plan, doors, rooms, problems and one heat grid | `unit_u_sample_001.json` |
-| `GET /routes?building_id&category&profile` | Route with colored stretches and hard spots | `route_b000_pharmacy_wheelchair.json` |
-| `GET /furnish/score?model_id&profiles` | Current furnishing score + suggestions | `furnish_score_u_sample_001.json` |
-| `POST /furnish/plan` | Placement plan for a target unit | `furnish_plan_u_sample_001.json` |
-| `POST /relocate` | Ranked neighborhoods in the other city | `relocate_sample.json` |
-| `POST /agent/chat` | Agent text + UI actions | `agent_reply_sample.json` |
-| `POST /voice/token` | Short-lived Gemini Live token (see `docs/VOICE.md`) | – (503 until `GEMINI_API_KEY` is set) |
+| Method and path | Returns |
+| --- | --- |
+| `GET /health`, `GET /meta` | Mode, which keys are set, counts per city, hero ids |
+| `GET /map/buildings?city&profiles&combine&passing_only&min_score&max_rent` | Building dots with per-profile scores, `combined`, `measured_inside` |
+| `GET /map/hexes?city&profiles&combine` | Compact rows `[h3, combined score, confidence 0-2, live 0/1]` |
+| `GET /map/hexes/{cell}?city` | One cell: scores, minutes to essentials per profile, street measures, `live` |
+| `GET /buildings/{id}?profiles` | Building + `components` (value and why), `building_scores`, `inside`, `units[]` with scores and top problems, `nearest[]`, `checklist[]` |
+| `GET /units/{model_id}/heatmap?profile&furnished&floor&chair_cm` | Floor plan, doors, rooms, furniture, turning circles, paths, problems, checks, scores and one heat grid |
+| `POST /units/heatmap` | The same for a custom furniture layout `{ model_id, profile, furniture[] }` |
+| `GET /routes?building_id&category&profile` (or `from_lat, from_lon, to_lat, to_lon`) | Route with colored stretches, hard spots, turn-by-turn steps |
+| `GET /aerial?lat&lon&meters` | Vexcel top-down JPEG around a point (cached) |
+| `GET /furnish/score?model_id&profiles` | Furniture found in the scan, score empty vs furnished, suggestions |
+| `GET /furnish/inventory?model_id` | The pieces found in a furnished scan, snapped to standard sizes |
+| `POST /furnish/plan` | Placement plan: `{ target_model_id, profiles, inventory[] or from_model_id, preferences }` |
+| `POST /relocate` | Ranked neighborhoods in the other city |
+| `POST /agent/chat` | Agent text + UI actions |
+| `POST /voice/token` | Short-lived Gemini Live token (see `docs/VOICE.md`; 503 until `GEMINI_API_KEY` is set) |
+
+Heat grid values mean, per profile: `wheelchair` 4 reachable at 36 in, 3 reachable at 32 to 36 in or behind a tight door, 2 not reachable;
+`older` 4 within 8 m of the bed, 3 within 15 m, 2 farther or up stairs; `deaf` 4 visible from the main seat, 3 from the kitchen only, 2 neither;
+`blind` 4 clear floor, 3 within 30 cm of furniture. The response's `legend` carries these labels. `frontend/src/types.ts` has every field.
 
 ## Building
 
@@ -101,5 +107,5 @@ response `{ origin, profiles, candidates: [{ h3, name, match, comparison: { phar
 ## Agent
 
 Request `{ messages: [{ role, content }], session_id }`; response `{ text, ui_actions: [...] }` where each action is one of:
-`set_map_view {center: [lon, lat], zoom, profiles}`, `highlight_buildings {ids}`, `show_route {route_id}`,
-`open_unit {model_id, problem_id}`, `open_tour_at {model_id, scan_id}`.
+`set_map_view {center: [lon, lat], zoom, profiles, city}`, `highlight_buildings {ids}`, `open_building {id}`,
+`show_route {building_id, category, profile}`, `open_unit {model_id, profile, problem_id, tab, plan}`, `show_relocation {request}`.

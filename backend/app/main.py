@@ -80,9 +80,32 @@ def _plan(model_id: str):
     if not (DATA / "matterport" / f"{model_id}.json").exists() and not os.getenv("MATTERPORT_API_KEY"):
         raise HTTPException(404, "no geometry cached for this scan")
     try:
-        return load_plan(model_id)
+        plan = load_plan(model_id)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"couldn't load the scan: {e}") from e
+    if plan.has_graph and not plan.fixtures and os.getenv("MATTERPORT_API_KEY"):
+        # first time this home is opened: fetch its 3D mesh (about 1 MB) for the counters, island, toilet and tub
+        from pipeline import fixtures
+        try:
+            fixtures.attach(plan, fetch=True)
+        except Exception:  # noqa: BLE001  no mesh: measure without built-ins, as before
+            pass
+    return plan
+
+
+@lru_cache(maxsize=1)
+def _unit_rows() -> dict:
+    """model id -> its row in the building table, to refresh a unit's scores once it is measured with its built-ins."""
+    return {u["model_id"]: u for b in buildings().values() for u in b["units"]}
+
+
+def _refresh_unit(model_id: str, res: dict) -> None:
+    row = _unit_rows().get(model_id)
+    if row is not None and row.get("scores"):
+        row["scores"] = res["scores"]
+    idx = units_index().get(model_id)
+    if idx is not None:
+        idx["scores"], idx["problems"] = res["scores"], res["problems"]
 
 
 @lru_cache(maxsize=96)
@@ -270,17 +293,70 @@ def unit_heatmap(model_id: str, profile: Profile = "wheelchair", furnished: bool
     plan = _plan(model_id)
     if not plan.has_graph:
         return {"model_id": model_id, "caption": plan.caption, "has_graph": False, "rooms": plan.room_summary,
-                "message": "This scan has room sizes but no measured walls and doorways, so we can't draw a heat map."}
+                "scan_date": (plan.created or "")[:10] or None, "defurnished_id": units_index().get(model_id, {}).get("defurnished"),
+                "message": "Matterport didn't measure walls and doorways for this scan, so there is no heat map, door widths or "
+                           "problem list. You can still look around in 3D and see Matterport's own 2D floor plan."}
     res, furniture = _analysis(model_id, furnished, chair_cm)
     if floor is not None and not 0 <= floor < len(plan.floors):
         raise HTTPException(422, "no such floor")
     big = sum(f.shape[0] * f.shape[1] for f in plan.floors) > 160_000
     out = unit_json(plan, res, profile, floor, furniture, out_cell=0.1 if big else 0.05)
+    if not furnished and not chair_cm and plan.fixtures:
+        _refresh_unit(model_id, res)
     out["has_graph"] = True
+    out["defurnished_id"] = units_index().get(model_id, {}).get("defurnished")
     out["has_furniture_scan"] = (DATA / "furniture" / f"{model_id}.json").exists()
     out["tour_url"] = f"https://my.matterport.com/show/?m={model_id}&play=1&qs=1"
     out["all_problems"] = res["problems"]
     return out
+
+
+def _check_id(model_id: str) -> None:
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9]{6,40}", model_id):
+        raise HTTPException(422, "not a Matterport model id")
+
+
+@app.get("/units/{model_id}/floorplans")
+def unit_floorplans(model_id: str):
+    """Matterport's own 2D floor plans for any scan, even one without a wall graph: a top-down photo and a schematic
+    (walls, doorways, room areas) per floor. Downloaded once and cached; the image links Matterport gives expire."""
+    _check_id(model_id)
+    folder = DATA / "floorplans" / model_id
+    manifest = folder / "floorplans.json"
+    if not manifest.exists():
+        if not os.getenv("MATTERPORT_API_KEY"):
+            raise HTTPException(404, "no Matterport key to fetch floor plans")
+        import requests
+        from pipeline.clients import matterport
+        try:
+            fps = matterport.assets(model_id).get("floorplans") or []
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"couldn't reach Matterport: {e}") from e
+        folder.mkdir(parents=True, exist_ok=True)
+        rows, seen = [], set()
+        for fp in fps:
+            flags = fp.get("flags") or []
+            kind = "schematic" if "schematic" in flags else "photo" if "photogramy" in flags and "alpha" in flags else None
+            floor = (fp.get("floor") or {}).get("sequence") or 0
+            if not kind or fp.get("format") != "png" or not fp.get("url") or (floor, kind) in seen:
+                continue   # the first of each kind per floor is the largest
+            seen.add((floor, kind))
+            name = f"{floor}_{kind}.png"
+            (folder / name).write_bytes(requests.get(fp["url"], timeout=60).content)
+            rows.append({"floor": floor, "label": (fp.get("floor") or {}).get("label") or f"Floor {floor + 1}", "kind": kind, "file": name})
+        manifest.write_text(json.dumps(sorted(rows, key=lambda r: (r["floor"], r["kind"] != "schematic"))))
+    rows = json.loads(manifest.read_text())
+    return [{k: r[k] for k in ("floor", "label", "kind")} | {"url": f"/units/{model_id}/floorplan/{r['file']}"} for r in rows]
+
+
+@app.get("/units/{model_id}/floorplan/{name}")
+def unit_floorplan_image(model_id: str, name: str):
+    _check_id(model_id)
+    path = DATA / "floorplans" / model_id / name
+    if not name.endswith(".png") or "/" in name or ".." in name or not path.exists():
+        raise HTTPException(404, "no such floor plan")
+    return Response(path.read_bytes(), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/units/{model_id}/summary")

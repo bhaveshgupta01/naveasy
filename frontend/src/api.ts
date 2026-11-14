@@ -1,5 +1,5 @@
 // All data comes from the NavEasy API (backend/app/main.py). Default: http://localhost:8000.
-import type { Building, BuildingDetail, Category, City, FurnishPlan, FurnishScore, Furniture, Profile, Relocation, Route, Score, UiAction, Unit } from './types'
+import type { Building, BuildingDetail, Category, City, FloorplanImage, FurnishPlan, FurnishScore, Furniture, Profile, Relocation, Route, Score, UiAction, Unit } from './types'
 
 export const API = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8000'
 
@@ -59,3 +59,5 @@ export const obliqueUrl = (lat: number, lon: number, direction: string) => `${AP
 export const fetchCrosswalk = (lat: number, lon: number) => get<{ seen: boolean; text: string }>(`/crosswalk?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`)
 export const fetchNarration = (modelId: string, profile: Profile) => get<{ title: string; paragraphs: string[] }>(`/units/${modelId}/narration?profile=${profile}`)
 export const TILE_URL = `${API}/tiles/{z}/{x}/{y}.jpg`
+
+export const fetchFloorplans = (modelId: string) => get<FloorplanImage[]>(`/units/${modelId}/floorplans`)

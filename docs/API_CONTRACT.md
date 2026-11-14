@@ -20,6 +20,8 @@ The frontend and backend agree on these shapes. The API serves real data built b
 | `GET /buildings/{id}?profiles` | Building + `components` (value and why), `building_scores`, `inside`, `units[]` with scores and top problems, `nearest[]`, `checklist[]` |
 | `GET /units/{model_id}/heatmap?profile&furnished&floor&chair_cm` | Floor plan, doors, rooms, furniture, turning circles, paths, problems, checks, scores and one heat grid |
 | `POST /units/heatmap` | The same for a custom furniture layout `{ model_id, profile, furniture[] }` |
+| `GET /units/{model_id}/floorplans` | Matterport's own 2D floor plans for any scan, even one without a wall graph: `[{ floor, label, kind: "schematic" or "photo", url }]` |
+| `GET /units/{model_id}/floorplan/{name}` | One of those images (PNG, cached) |
 | `GET /routes?building_id&category&profile` (or `from_lat, from_lon, to_lat, to_lon`) | Route with colored stretches, hard spots, turn-by-turn steps |
 | `GET /aerial?lat&lon&meters` | Vexcel top-down JPEG around a point (cached) |
 | `GET /furnish/score?model_id&profiles` | Furniture found in the scan, score empty vs furnished, suggestions |
@@ -31,7 +33,7 @@ The frontend and backend agree on these shapes. The API serves real data built b
 
 Heat grid values mean, per profile: `wheelchair` 4 reachable at 36 in, 3 reachable at 32 to 36 in or behind a tight door, 2 not reachable;
 `older` 4 within 8 m of the bed, 3 within 15 m, 2 farther or up stairs; `deaf` 4 visible from the main seat, 3 from the kitchen only, 2 neither;
-`blind` 4 clear floor, 3 within 30 cm of furniture. The response's `legend` carries these labels. `frontend/src/types.ts` has every field.
+`blind` 4 clear floor, 3 within 30 cm of furniture. Stairs are 2 for `wheelchair`, `older` and `blind`. The response's `legend` carries these labels. `frontend/src/types.ts` has every field.
 
 ## Building
 
@@ -68,9 +70,17 @@ Heat grid values mean, per profile: `wheelchair` 4 reachable at 36 in, 3 reachab
   "turning_circles": [{ "x": 2.6, "y": 1.2, "r": 0.76 }],
   "problems": [{ "id": "p1", "severity": "high", "profile": "wheelchair", "x": 4.5, "y": 4.8,
                  "text": "Bathroom door about 26 in clear; a wheelchair needs 32 in." }],
-  "heat": { "cell_m": 0.1, "origin": [x0, y0], "width": 86, "height": 72, "values": [[...], ...] }
+  "heat": { "cell_m": 0.1, "origin": [x0, y0], "width": 86, "height": 72, "values": [[...], ...] },
+  "fixtures": [[row, first_col, last_col_plus_1], ...],   // built-ins from the 3D mesh, on the heat grid
+  "fixtures_source": "mesh",                             // or null when the mesh wasn't available
+  "defurnished_id": "teat3htgur5a5tzxus3xz552c"          // Matterport's furniture-removed view, or null
 }
 ```
+
+Built-ins (`fixtures`) come from Matterport's 50k-triangle mesh: level surfaces 30 cm to 1.3 m above the floor in
+kitchens, bathrooms, laundry, pantry and utility rooms (counters, islands, vanities, toilets, tubs). They block like
+walls (heat value 1), so routes go around them. Stairs inside rooms labeled Staircase are found the same way (level
+surfaces climbing at least 50 cm). A scan without a wall graph returns `{ has_graph: false, message, defurnished_id }`.
 
 `heat.values[row][col]` (row 0 = lowest y):
 

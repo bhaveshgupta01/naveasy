@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import FloorPlan, { HEAT } from './FloorPlan'
+import FloorPlan, { FIXTURE_COLOR, HEAT } from './FloorPlan'
 import Tour3D from './Tour3D'
+import MatterportPlan from './MatterportPlan'
 import { fetchFurnishScore, fetchNarration, fetchUnit, fetchUnitCustom, planFurnishing, type Meta } from '../api'
 import { PROFILES, scoreWord, type FurnishPlan, type FurnishScore, type Furniture, type Problem, type Profile, type Unit } from '../types'
 
@@ -29,7 +30,7 @@ interface Props {
   modelId: string
   profiles: Profile[]
   initialProfile?: Profile
-  initialTab?: 'heat' | 'score' | 'plan' | 'tour'
+  initialTab?: 'heat' | 'score' | 'plan' | 'tour' | 'floor'
   initialPlan?: FurnishPlan
   autoPlanFrom?: string
   meta: Meta | null
@@ -41,7 +42,8 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
   const [furnished, setFurnished] = useState(false)
   const [floor, setFloor] = useState<number | undefined>(undefined)
   const [unit, setUnit] = useState<Unit | null>(null)
-  const [tab, setTab] = useState(initialTab ?? 'heat')
+  const [tab, setTab] = useState<'heat' | 'score' | 'plan' | 'tour' | 'floor'>(initialTab ?? 'heat')
+  const [emptyScan, setEmptyScan] = useState(false) // the 3D tour shows Matterport's furniture-removed view of the scan
   const [focus, setFocus] = useState<Problem | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fscore, setFscore] = useState<FurnishScore | null>(null)
@@ -74,15 +76,24 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
     fetchUnit(modelId, profile, furnished, floor)
       .then((u) => {
         setUnit(u)
-        if (u.has_graph === false) setError(u.message ?? 'No floor plan for this scan.')
+        // no wall graph: no heat map, but Matterport's own 2D floor plan and the 3D tour still work
+        if (u.has_graph === false) setTab((t) => (t === 'tour' ? t : 'floor'))
       })
       .catch((e) => setError(String(e.message ?? e)))
   }, [modelId, profile, furnished, floor])
 
-  // the 3D tour shows the scan as furnished, so its heat map and zone alerts count the furniture you can see in it
+  // The 3D tour's heat map and zone alerts match the scan you see: with the furniture found in it, or without any
+  // furniture when it shows Matterport's furniture-removed view
   useEffect(() => {
-    if (tab === 'tour' && unit?.has_furniture_scan && !furnished) setFurnished(true)
-  }, [tab, unit?.has_furniture_scan, furnished])
+    if (tab !== 'tour') return
+    if (emptyScan && furnished) setFurnished(false)
+    else if (!emptyScan && unit?.has_furniture_scan && !furnished) setFurnished(true)
+  }, [tab, emptyScan, unit?.has_furniture_scan, furnished])
+
+  // a furniture plan goes into the empty home, so the tour switches to the furniture-removed view when there is one
+  useEffect(() => {
+    if (plan && unit?.defurnished_id) setEmptyScan(true)
+  }, [plan, unit?.defurnished_id])
 
   useEffect(() => {
     if (tab !== 'score' || fscore) return
@@ -121,6 +132,7 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
   }, [autoPlanFrom])
 
   const ok = unit && unit.has_graph !== false
+  const noGraph = unit?.has_graph === false
   const shown = tab === 'plan' && planUnit ? planUnit : unit
   const score = ok ? shown!.scores[profile] : null
   const color = PROFILES.find((p) => p.id === profile)!.color
@@ -132,7 +144,8 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
           <div>
             <h2>{unit?.caption || 'Scanned unit'}</h2>
             <p className="muted">
-              Measured from the Matterport 3D scan{unit?.scan_date ? ` of ${unit.scan_date}` : ''}
+              {noGraph ? 'Matterport 3D scan' : 'Measured from the Matterport 3D scan'}
+              {unit?.scan_date ? ` of ${unit.scan_date}` : ''}
               {ok ? ` · ${Math.round(unit!.stats.area_m2 * 10.764).toLocaleString()} sq ft · ${unit!.stats.doorways} doorways measured` : ''}
             </p>
           </div>
@@ -142,13 +155,17 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
         </header>
 
         <div className="tabs" role="tablist">
-          {(
-            [
-              ['heat', 'Heat map'],
-              ['score', 'Score my furniture'],
-              ['plan', 'Plan my furniture'],
-              ['tour', '3D tour'],
-            ] as const
+          {(noGraph
+            ? ([
+                ['floor', '2D floor plan'],
+                ['tour', '3D tour'],
+              ] as const)
+            : ([
+                ['heat', 'Heat map'],
+                ['score', 'Score my furniture'],
+                ['plan', 'Plan my furniture'],
+                ['tour', '3D tour'],
+              ] as const)
           ).map(([id, label]) => (
             <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'tab on' : 'tab'} onClick={() => setTab(id)}>
               {label}
@@ -162,8 +179,23 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
           </p>
         )}
 
-        {tab === 'tour' ? (
-          <Tour3D modelId={modelId} unit={planUnit ?? unit} profile={profile} onProfile={setProfile} onFloor={setFloor} planned={!!planUnit} />
+        {noGraph && unit?.message && <p className="note">{unit.message}</p>}
+
+        {tab === 'floor' ? (
+          <MatterportPlan modelId={modelId} />
+        ) : tab === 'tour' ? (
+          <Tour3D
+            modelId={modelId}
+            tourId={emptyScan && unit?.defurnished_id ? unit.defurnished_id : modelId}
+            unit={noGraph ? null : (planUnit ?? unit)}
+            measured={!noGraph}
+            profile={profile}
+            onProfile={setProfile}
+            onFloor={setFloor}
+            planned={!!planUnit}
+            emptyScan={emptyScan}
+            onEmptyScan={unit?.defurnished_id ? setEmptyScan : undefined}
+          />
         ) : (
           ok && (
             <div className="unit-body">
@@ -203,6 +235,11 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                       <i style={{ background: HEAT[v] }} className={v === 2 ? 'hatch' : ''} /> {shown!.legend[String(v)]}
                     </span>
                   ))}
+                  {shown!.fixtures_source && (
+                    <span>
+                      <i style={{ background: FIXTURE_COLOR }} /> built-in (counter, island, toilet, tub), from the 3D mesh
+                    </span>
+                  )}
                   <span>
                     <i style={{ background: '#14532d' }} /> door label: estimated clear width
                   </span>
@@ -268,8 +305,11 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                       {!unit!.problems.length && <li className="muted">None for this need in what the scan can measure.</li>}
                     </ul>
                     <p className="fine">
-                      Door widths are scan widths minus 2 in (scans measure the frame opening). Fixtures such as the toilet, tub and counters are not in the
-                      scan geometry. Estimates, not a certification: measure before you sign.
+                      Door widths are scan widths minus 2 in (scans measure the frame opening).{' '}
+                      {unit!.fixtures_source
+                        ? "Counters, islands, vanities, toilets and tubs come from Matterport's 3D mesh of this scan."
+                        : 'Fixtures such as the toilet, tub and counters are not in the scan geometry.'}{' '}
+                      Estimates, not a certification: measure before you sign.
                     </p>
                   </>
                 )}

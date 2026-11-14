@@ -95,11 +95,15 @@ export function zoneAt(unit: Unit, x: number, y: number): Zone {
     .sort((a, b) => (a.severity === b.severity ? Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y) : a.severity === 'high' ? -1 : 1))
   const hit = near[0]
 
-  // stairs are a no-go for a wheelchair and a hazard for the others
-  if (room && STAIRS.test(room.type) && p !== 'deaf') {
-    const level = p === 'wheelchair' ? 'red' : 'amber'
-    const text = p === 'wheelchair' ? "Stairs: a wheelchair can't go this way." : 'Stairs: a fall and trip risk.'
-    return { level, title: TITLE[p][level], text, key: `stairs:${room.id}` }
+  // stairs: a no-go for a wheelchair, a fall risk for a blind resident or an older adult. The heat map marks the
+  // stairs themselves (found in the 3D mesh), since a room labeled Staircase can be a whole open-plan living area.
+  if (room && STAIRS.test(room.type) && p !== 'deaf' && v === 2) {
+    const text = {
+      wheelchair: "Stairs: a wheelchair can't go this way.",
+      blind: 'Stairs: a fall risk. Check for a handrail on both sides and a contrasting edge on each step.',
+      older: 'Stairs: a fall risk, and tiring to climb every day.',
+    }[p]
+    return { level: 'red', title: TITLE[p].red, text, key: `stairs:${room.id}` }
   }
 
   let level: Level = v === 2 ? 'red' : v === 3 ? 'amber' : 'green'

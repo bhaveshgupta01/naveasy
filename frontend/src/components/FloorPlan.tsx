@@ -3,6 +3,7 @@ import type { Furniture, Unit } from '../types'
 
 // values: 0 outside, 1 blocked, 2 problem, 3 caution, 4 good
 export const HEAT = ['rgba(0,0,0,0)', '#c9ccd1', '#f29b9b', '#f6d27a', '#a8dfae']
+export const FIXTURE_COLOR = '#a8865c' // counters, islands, toilets, tubs found in Matterport's 3D mesh
 
 interface Props {
   unit: Unit
@@ -49,6 +50,12 @@ export default function FloorPlan({ unit, size = 520, focus, furniture, ghost, c
         i = k
       }
     })
+
+    // built-ins from the 3D mesh, drawn like solid furniture
+    ctx.fillStyle = FIXTURE_COLOR
+    ;(unit.fixtures ?? []).forEach(([j, a, b]) =>
+      ctx.fillRect(X(g.origin[0] + a * g.cell_m), Y(g.origin[1] + (j + 1) * g.cell_m), (b - a) * cs + 0.6, cs + 0.6),
+    )
 
     // caution cells get a dot pattern and problem cells a hatch, so the map doesn't rely on color alone
     if (!compact) {

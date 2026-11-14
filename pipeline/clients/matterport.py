@@ -72,6 +72,24 @@ def geometry(model_id: str, cache: bool = True) -> dict | None:
     return model
 
 
+ASSETS_QUERY = """
+query($id: ID!) {
+  model(id: $id) {
+    assets {
+      meshes { format resolution filename url }
+      floorplans { format flags url floor { sequence label } }
+    }
+  }
+}"""
+
+
+def assets(model_id: str) -> dict:
+    """Downloadable assets: the textured mesh (OBJ, 50k and 500k triangles) and Matterport's own floor plan images
+    (a top-down photo and a schematic, per floor). Links are signed and expire: download, don't store them."""
+    model = (gql(ASSETS_QUERY, {"id": model_id}).get("data") or {}).get("model") or {}
+    return model.get("assets") or {"meshes": [], "floorplans": []}
+
+
 def defurnished_view_id(model_id: str) -> str | None:
     body = gql('query($id: ID!){ model(id:$id){ view(type: "%s"){ id } } }' % DEFURNISHED, {"id": model_id})
     view = ((body.get("data") or {}).get("model") or {}).get("view")

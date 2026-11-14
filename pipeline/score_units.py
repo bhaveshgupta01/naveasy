@@ -1,6 +1,7 @@
 """Score every scan whose geometry is cached, then fold the results into the building table.
 
-    python -m pipeline.score_units
+    python -m pipeline.score_units            # new scans only
+    python -m pipeline.score_units --meshes   # also rescore scans whose 3D mesh is cached (built-ins and stairs)
 
 Writes data/units_index.json (model_id -> summary) and data/buildings_scored.json.
 Safe to rerun while pipeline.fetch_geometry is still downloading.
@@ -37,10 +38,11 @@ def main() -> None:
     idx_path = DATA / "units_index.json"
     index = json.loads(idx_path.read_text()) if idx_path.exists() and "--fresh" not in sys.argv else {}
     files = sorted((DATA / "matterport").glob("*.json"))
+    meshed = {p.stem.removesuffix("_50k") for p in (DATA / "meshes").glob("*_50k.obj")} if "--meshes" in sys.argv else set()
     t0, n = time.time(), 0
     for f in files:
         mid = f.stem
-        if mid in index:
+        if mid in index and mid not in meshed:
             continue
         try:
             raw = json.loads(f.read_text())

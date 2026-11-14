@@ -38,14 +38,18 @@ function beep() {
 
 interface Props {
   modelId: string
+  tourId?: string // the Matterport view to show: the scan itself, or its furniture-removed view (same scan positions)
   unit: Unit | null
+  measured?: boolean // false: no wall graph, so no heat map or zone alerts, just the tour
   profile: Profile
   onProfile: (p: Profile) => void
   onFloor?: (floor: number) => void
   planned?: boolean // the unit carries a furnishing plan, placed in the scan
+  emptyScan?: boolean
+  onEmptyScan?: (on: boolean) => void // offered when Matterport has a furniture-removed view of this scan
 }
 
-export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, planned }: Props) {
+export default function Tour3D({ modelId, tourId = modelId, unit, measured = true, profile, onProfile, onFloor, planned, emptyScan, onEmptyScan }: Props) {
   const frame = useRef<HTMLIFrameElement>(null)
   const stage = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -114,6 +118,10 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
   useEffect(() => {
     if (!KEY || !frame.current) return
     let gone = false
+    setConnected(false)
+    setStatus('Loading the 3D scan…')
+    sweeps.current = []
+    tagIds.current = []
     const el = frame.current
     const subs: { cancel: () => void }[] = []
     const onLoad = async () => {
@@ -159,7 +167,7 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
       window.speechSynthesis?.cancel()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelId])
+  }, [tourId])
 
   // the three.js layer over the tour, sized to it
   useEffect(() => {
@@ -242,7 +250,7 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
           ref={frame}
           className="tour"
           title="Matterport 3D tour"
-          src={`https://my.matterport.com/show?m=${modelId}&play=1&qs=1&brand=0${KEY ? `&applicationKey=${KEY}` : ''}`}
+          src={`https://my.matterport.com/show?m=${tourId}&play=1&qs=1&brand=0${KEY ? `&applicationKey=${KEY}` : ''}`}
           allow="fullscreen; xr-spatial-tracking"
         />
         <canvas ref={canvas} className="tour-overlay" aria-hidden />
@@ -263,6 +271,7 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
         )}
       </div>
       <div>
+        {measured && (
         <div className="seg" role="group" aria-label="Need checked in 3D">
           {PROFILES.map((p) => (
             <button key={p.id} className={profile === p.id ? 'on' : ''} aria-pressed={profile === p.id} onClick={() => onProfile(p.id)}>
@@ -272,6 +281,7 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
             </button>
           ))}
         </div>
+        )}
         <p className="muted" role="status">
           {status}
         </p>
@@ -288,6 +298,18 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
                 Top view
               </button>
             </div>
+            {onEmptyScan && (
+              <div className="seg" role="group" aria-label="Which scan to show">
+                <button className={!emptyScan ? 'on' : ''} aria-pressed={!emptyScan} onClick={() => onEmptyScan(false)}>
+                  As scanned
+                </button>
+                <button className={emptyScan ? 'on' : ''} aria-pressed={!!emptyScan} onClick={() => onEmptyScan(true)}>
+                  Furniture removed
+                </button>
+              </div>
+            )}
+            {measured && (
+            <>
             <div className="row wrap">
               <label className="check">
                 <input type="checkbox" checked={showFloor} onChange={(e) => setShowFloor(e.target.checked)} /> Heat map in 3D
@@ -312,9 +334,18 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
                 </span>
               )}
             </div>
+            </>
+            )}
           </>
         )}
-        {planned && <p className="fine">Showing your furniture plan in the scan, with the heat map worked out for it.</p>}
+        {planned && (
+          <p className="fine">
+            Showing your furniture plan{emptyScan ? " in Matterport's furniture-removed view of the scan" : ' in the scan'}, with the heat map worked out for it.
+          </p>
+        )}
+        {!measured && <p className="fine">Look around in 3D, or use Top view for a 2D view from above. 3D scan © Matterport.</p>}
+        {measured && (
+        <>
         <h3>Measured problems</h3>
         <ul className="problems">
           {problems.map((p) => (
@@ -337,7 +368,11 @@ export default function Tour3D({ modelId, unit, profile, onProfile, onFloor, pla
             <i style={{ background: '#34c759' }} /> good
           </span>
         </p>
-        <p className="fine">3D scan © Matterport. The colors, door widths and alerts come from NavEasy's measurements of this scan's walls and doorways.</p>
+        <p className="fine">
+          3D scan © Matterport. The colors, door widths and alerts come from NavEasy's measurements of this scan's walls, doorways and built-ins.
+        </p>
+        </>
+        )}
       </div>
     </div>
   )

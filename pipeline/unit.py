@@ -39,7 +39,7 @@ LEGENDS = {
     "wheelchair": {4: "Reachable with 36 in clear", 3: "Reachable, 32 to 36 in clear", 2: "A wheelchair can't reach this floor"},
     "older": {4: "Within 8 m of the bed, no steps", 3: "8 to 15 m from the bed", 2: "Over 15 m from the bed, or up stairs"},
     "deaf": {4: "Visible from the main seat", 3: "Visible from the kitchen only", 2: "Out of sight from both"},
-    "blind": {4: "Clear floor", 3: "Within 30 cm of furniture", 2: "Furniture or a step on a main path"},
+    "blind": {4: "Clear floor", 3: "Within 30 cm of furniture", 2: "Stairs"},
 }
 
 
@@ -55,6 +55,8 @@ class Floor:
     shape: tuple[int, int] = (0, 0)
     room_idx: np.ndarray | None = None    # -1 outside, else index into rooms
     wall_mask: np.ndarray | None = None
+    fixture_mask: np.ndarray | None = None   # built-ins found in the 3D mesh (pipeline.fixtures); None if not looked for
+    stairs_mask: np.ndarray | None = None    # the stairs themselves, found in the mesh inside rooms labeled Staircase
 
     def rc(self, x: float, y: float) -> tuple[int, int]:
         r = int((y - self.bounds[1]) / CELL)
@@ -76,6 +78,7 @@ class Plan:
     entry: dict | None = None       # the entry door
     has_graph: bool = True
     room_summary: list = field(default_factory=list)
+    fixtures: str | None = None     # "mesh" once pipeline.fixtures has put the built-ins on the floors
 
 
 # ---------------------------------------------------------------- geometry
@@ -203,7 +206,9 @@ def _rasterize(f: Floor) -> None:
     f.wall_mask = np.array(wimg, dtype=bool)
 
 
-def load_plan(model_id: str, raw: dict | None = None) -> Plan:
+def load_plan(model_id: str, raw: dict | None = None, fixtures: bool = True) -> Plan:
+    """The wall graph as floors, rooms, doors and windows. With fixtures=True the built-ins from the scan's 3D mesh
+    are added when the mesh is already on disk (pipeline.fixtures fetches it), so every caller sees the same home."""
     m = raw or matterport.geometry(model_id)
     floors = []
     for i, fl in enumerate(sorted(m.get("floors") or [], key=lambda f: f.get("sequence") or 0)):
@@ -218,6 +223,12 @@ def load_plan(model_id: str, raw: dict | None = None) -> Plan:
                              for fl in m.get("floors") or [] for r in fl.get("rooms") or []]
         return plan
     _find_entry(plan)
+    if fixtures:
+        from . import fixtures as fx
+        try:
+            fx.attach(plan, fetch=False)
+        except Exception:  # noqa: BLE001  a damaged cache must not stop the plan loading
+            pass
     return plan
 
 
@@ -372,7 +383,37 @@ def _graph_dist(mask: np.ndarray, src: tuple[int, int]):
     return dist.reshape(ny, nx), pred
 
 
-def _path(f: Floor, pred: np.ndarray, src: tuple[int, int], dst: tuple[int, int]) -> list[list[float]]:
+def _simplify_clear(f: Floor, raw: list, clear: np.ndarray, tol: float = 0.2) -> list:
+    """Douglas-Peucker that never cuts a corner: a straight stretch is kept only if it stays on `clear` all the way,
+    so a drawn route doesn't clip a counter or a wall it actually walked around."""
+    pts = np.asarray(raw, dtype=float)
+    if len(pts) < 3:
+        return pts.tolist()
+
+    def on_clear(a, b) -> bool:
+        n = max(2, int(math.dist(a, b) / (CELL / 2)) + 1)
+        return all(clear[f.rc(*(a + (b - a) * t))] for t in np.linspace(0, 1, n))
+
+    keep, stack = {0, len(pts) - 1}, [(0, len(pts) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, b = pts[i], pts[j]
+        ab = b - a
+        rel = pts[i + 1:j] - a
+        dev = np.abs(ab[0] * rel[:, 1] - ab[1] * rel[:, 0]) / max(float(np.hypot(*ab)), 1e-9)
+        if dev.max() <= tol and on_clear(a, b):
+            continue
+        k = i + 1 + int(np.argmax(dev)) if dev.max() > tol else (i + j) // 2
+        keep.add(k)
+        stack += [(i, k), (k, j)]
+    return pts[sorted(keep)].tolist()
+
+
+def _path(f: Floor, pred: np.ndarray, src: tuple[int, int], dst: tuple[int, int], clear: np.ndarray | None = None) -> tuple[list, int]:
+    """The route as points to draw (kept on `clear`, so it never cuts across a counter) and its number of turns
+    (counted on the plainly simplified route, so drawing it carefully doesn't add turns)."""
     nx = f.shape[1]
     cur, target, out = dst[0] * nx + dst[1], src[0] * nx + src[1], []
     for _ in range(f.shape[0] * nx):
@@ -381,9 +422,12 @@ def _path(f: Floor, pred: np.ndarray, src: tuple[int, int], dst: tuple[int, int]
             break
         cur = pred[cur]
         if cur < 0:
-            return []
-    line = LineString(out[::-1]).simplify(0.2) if len(out) > 1 else None
-    return [[round(x, 2), round(y, 2)] for x, y in line.coords] if line else []
+            return [], 0
+    if len(out) < 2:
+        return [], 0
+    plain = [list(c) for c in LineString(out[::-1]).simplify(0.2).coords]
+    coords = _simplify_clear(f, out[::-1], clear) if clear is not None else plain
+    return [[round(x, 2), round(y, 2)] for x, y in coords], _turns(plain)
 
 
 def _turns(path: list, min_deg: float = 30) -> int:
@@ -462,7 +506,8 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
     for f in plan.floors:
         floor = f.room_idx >= 0
         furn = _furniture_mask(f, furniture)
-        blocked = f.wall_mask | furn
+        fix = f.fixture_mask if f.fixture_mask is not None else np.zeros(f.shape, bool)
+        blocked = f.wall_mask | furn | fix   # counters, islands, toilets and tubs block like walls
         free = floor & ~blocked
         # distance to the nearest obstacle; outside the unit counts as an obstacle
         dist = ndi.distance_transform_edt(free) * CELL
@@ -478,7 +523,7 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
         walk = free & (dist >= 0.2)
         for d in f.doors:
             walk |= _door_cells(f, d, max(0.1, d["width_m"] / 2 - 0.2), d["wall_thickness"] / 2 + 0.3) & free
-        per_floor.append(dict(f=f, floor=floor, furn=furn, free=free, dist=dist, seed=seed, reach32=reach32,
+        per_floor.append(dict(f=f, floor=floor, furn=furn, fix=fix, free=free, dist=dist, seed=seed, reach32=reach32,
                               reach36=reach36, cov32=cov32, cov36=cov36, walk=walk))
 
     ef = per_floor[plan.entry_floor]
@@ -556,7 +601,8 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
             P.append({"id": f"turn_{r['id']}", "kind": "no_turning_space", "severity": "medium", "profile": "wheelchair", "floor": pf["f"].index,
                       "x": r["centroid"][0], "y": r["centroid"][1],
                       "text": f"No 60 in turning circle fits in this {r['type'].lower()}"
-                              + (" with the furniture in place." if furniture else " (measured before fixtures).")})
+                              + (" with the furniture in place." if furniture else
+                                 " with the built-ins found in the 3D mesh." if plan.fixtures else " (measured before fixtures).")})
 
     # ---- paths from the entry and from the bed (older adults, blind)
     paths = {}
@@ -573,8 +619,8 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
                         if cell and (best is None or dist_entry[cell] < best[0]):
                             best = (float(dist_entry[cell]), cell, r)
                 if best:
-                    pts = _path(f0, pred_entry, src, best[1])
-                    paths[kind] = {"from": "entry", "to": kind, "floor": f0.index, "meters": round(best[0], 1), "turns": _turns(pts), "points": pts}
+                    pts, turns = _path(f0, pred_entry, src, best[1], ef["walk"])
+                    paths[kind] = {"from": "entry", "to": kind, "floor": f0.index, "meters": round(best[0], 1), "turns": turns, "points": pts}
     # bed -> nearest bathroom (largest bedroom on any floor)
     bed_bath = None
     beds = sorted(_rooms_of(plan, "Bedroom"), key=lambda t: -t[0].rooms[t[1]]["area_m2"])
@@ -595,9 +641,9 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
                     if cell and (best is None or dbed[cell] < best[0]):
                         best = (float(dbed[cell]), cell)
             if best:
-                pts = _path(bf, pbed, src, best[1])
+                pts, turns = _path(bf, pbed, src, best[1], pf["walk"])
                 bed_bath = best[0]
-                paths["bed_bathroom"] = {"from": "bed", "to": "bathroom", "floor": bf.index, "meters": round(best[0], 1), "turns": _turns(pts), "points": pts}
+                paths["bed_bathroom"] = {"from": "bed", "to": "bathroom", "floor": bf.index, "meters": round(best[0], 1), "turns": turns, "points": pts}
     out["paths"] = list(paths.values())
 
     # ---- older adults
@@ -746,7 +792,11 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
         for pf in per_floor:
             fl: Floor = pf["f"]
             base = np.where(pf["floor"], 2, 0)
-            base[pf["floor"] & (fl.wall_mask | pf["furn"])] = 1
+            base[pf["floor"] & (fl.wall_mask | pf["furn"] | pf["fix"])] = 1
+            # stairs: a no-go for a wheelchair, a fall risk for an older adult, a hazard for a blind resident
+            # (from the mesh when we have it; otherwise a small room labeled Staircase, since a big one is open plan)
+            stairs = pf["free"] & (fl.stairs_mask if fl.stairs_mask is not None else
+                                   np.isin(fl.room_idx, [i for i, r in enumerate(fl.rooms) if r["type"] == "Staircase" and r["area_m2"] <= 12]))
             wch = base.copy()
             wch[pf["cov32"]] = 3
             wch[pf["cov36"]] = 4
@@ -770,7 +820,10 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
             bli[pf["free"]] = 4
             if pf["furn"].any():
                 bli[pf["free"] & ndi.binary_dilation(pf["furn"], iterations=6)] = 3
-            out["floors"].append({"index": fl.index, "heat": {"wheelchair": wch, "older": old, "deaf": dea, "blind": bli}})
+            for layer in (wch, old, bli):
+                layer[stairs] = 2
+            out["floors"].append({"index": fl.index, "heat": {"wheelchair": wch, "older": old, "deaf": dea, "blind": bli},
+                                  "fixtures": pf["fix"]})
         out["view_points"] = {"seat": [round(v, 2) for v in seat_xy] if seat_xy else None,
                               "kitchen": [round(v, 2) for v in kit_xy] if kit_xy else None}
     return out
@@ -798,9 +851,11 @@ def unit_json(plan: Plan, res: dict, profile: str = "wheelchair", floor: int | N
     fi = plan.entry_floor if floor is None else floor
     f = plan.floors[fi]
     heat = res["floors"][fi]["heat"][profile]
+    fix = res["floors"][fi].get("fixtures")
     step = max(1, round(out_cell / CELL))
     if step > 1:
         heat = heat[::step, ::step]
+        fix = fix[::step, ::step] if fix is not None else None
     return {
         "model_id": plan.model_id, "caption": plan.caption, "units": "meters", "profile": profile, "furnished": res["furnished"],
         "floor": fi, "floors": [{"index": x.index, "label": x.label} for x in plan.floors], "entry_floor": plan.entry_floor,
@@ -820,7 +875,18 @@ def unit_json(plan: Plan, res: dict, profile: str = "wheelchair", floor: int | N
         "legend": LEGENDS[profile],
         "heat": {"cell_m": CELL * step, "origin": [round(f.bounds[0], 3), round(f.bounds[1], 3)],
                  "width": int(heat.shape[1]), "height": int(heat.shape[0]), "values": heat.tolist()},
+        # built-ins found in the 3D mesh, as [row, first col, last col + 1] runs on the heat grid
+        "fixtures": _runs(fix) if fix is not None and plan.fixtures else [],
+        "fixtures_source": plan.fixtures,
     }
+
+
+def _runs(mask: np.ndarray) -> list[list[int]]:
+    out = []
+    for j, row in enumerate(mask):
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], row.astype(np.int8), [0]))))
+        out.extend([j, int(a), int(b)] for a, b in zip(edges[::2], edges[1::2]))
+    return out
 
 
 def summary(plan: Plan, res: dict) -> dict:

@@ -157,6 +157,17 @@ export interface Unit {
   heat: HeatGrid
   has_furniture_scan?: boolean
   tour_url?: string
+  fixtures?: [number, number, number][] // built-ins from the 3D mesh: [row, first col, last col + 1] on the heat grid
+  fixtures_source?: 'mesh' | null
+  defurnished_id?: string | null // Matterport's furniture-removed view of this scan (same scan positions)
+}
+
+// Matterport's own 2D floor plan images, available even for scans without a wall graph
+export interface FloorplanImage {
+  floor: number
+  label: string
+  kind: 'schematic' | 'photo'
+  url: string
 }
 
 export interface Route {

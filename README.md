@@ -27,7 +27,8 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Outside of a home in 3D | Working for every building from Vexcel surface heights + aerial photo; drone Gaussian splat viewer for the homes that have one (checked: renders the home in detail) | 230 buildings with a splat |
 | Zoom into a drone model | Homes with a drone model carry a yellow ring and a "Drone 3D" label on the map. Zoom past 18 with one near the middle of the screen and the map hands over to its drone model, starting at the map's tilt; zoom far out of it (or press Escape or "Back to the map") to return. `scripts/prefetch_splats.py` pre-loads the ones near an area | 198 Houston homes |
 | Angled photos around a home | Working (Vexcel obliques, four directions) | |
-| Matterport 3D tour with the heat map inside it | Working: the chosen need's heat map is drawn on the scan's floor with door widths, too-narrow door gates, turning circles, main paths and furniture (or your furniture plan), moving with Matterport's camera; walls hide what is behind them. Walking inside, the screen edges pulse red where that need can't go or is at risk and amber where it's tight, with the reason on screen; pointing at the floor previews a spot before you step there; blind mode speaks each warning. Problem pins fly the camera to each problem | localhost only (SDK key). The embed SDK can't add objects to Matterport's own scene, so this is a camera-synced overlay (`frontend/src/components/tourOverlay.ts`, `frontend/src/zones.ts`) |
+| Scans without measured walls | Clickable: Matterport's own 2D floor plan (schematic with room areas, or a top-down photo) and the 3D tour; the app says plainly that there is no heat map | 7,220 of 13,771 scans |
+| Matterport 3D tour with the heat map inside it | Working: the chosen need's heat map is drawn on the scan's floor with door widths, too-narrow door gates, turning circles, main paths and furniture (or your furniture plan), moving with Matterport's camera; walls hide what is behind them. Walking inside, the screen edges pulse red where that need can't go or is at risk and amber where it's tight, with the reason on screen; pointing at the floor previews a spot before you step there; blind mode speaks each warning. Problem pins fly the camera to each problem. A furniture plan is shown in Matterport's furniture-removed view of the scan ("Furniture removed" switch) | localhost only (SDK key). The embed SDK can't add objects to Matterport's own scene, so this is a camera-synced overlay (`frontend/src/components/tourOverlay.ts`, `frontend/src/zones.ts`) |
 | Guided demo | Working: seven steps that run live (`?panel=story`) | |
 | Voice mode | Working, on open-source speech that runs locally: Whisper (`base.en`, via faster-whisper) hears and Piper (`en_US-lessac-medium`) speaks, so nothing said leaves the machine. Hold Space or tap, speak, and the answer is read aloud while the app moves behind it (press V). Checked in a real browser: three spoken questions heard correctly and answered in about 4 s each. Falls back to the browser's speech if the models aren't installed | Not yet tried with a physical microphone |
 | Understanding free speech | Working on a local open-source language model through Ollama (`qwen2.5:7b`; `backend/app/brain.py`). It turns what you say into a command (needs, budget, place, qualities such as safe streets or near a bus stop) and words answers from retrieved facts; it never supplies facts. About 4 s per turn on an M-series Mac. Without Ollama it falls back to keyword rules | `ollama pull qwen2.5:7b` |
@@ -36,8 +37,11 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Agent | Tool-calling Claude agent written but **not yet run with a key**; a rule-based fallback answers without one | Needs `ANTHROPIC_API_KEY` |
 | Voice | Browser speech in and out in the chat panel; Gemini Live token endpoint written, **untested** | Needs `GEMINI_API_KEY` |
 
-Known gaps: built-in fixtures (toilet, tub, counters) are not in the scan geometry, so bathroom and kitchen checks are "before fixtures";
-building approach (entrance steps, parking) is not checked yet; LA has no street-level data cached; LangChain deepagents and Photon are not wired.
+Built-ins (counters, kitchen islands, vanities, toilets, tubs) and the stairs themselves come from Matterport's 3D mesh, fetched
+the first time a home is opened (`python -m pipeline.fixtures <model_id>`; `python -m pipeline.score_units --meshes` rescores the
+homes whose mesh is cached). In a furnished scan a kitchen table can be counted as a built-in.
+
+Known gaps: building approach (entrance steps, parking) is not checked yet; LA has no street-level data cached; LangChain deepagents and Photon are not wired.
 
 ## Repo layout
 
@@ -54,6 +58,7 @@ building approach (entrance steps, parking) is not checked yet; LA has no street
 | `pipeline/furniture.py`, `pipeline/furnish.py` | Furniture finder (furnished vs furniture-removed panoramas) and the furnishing scorer and planner |
 | `pipeline/relocate.py` | Relocation match (between cities or within one) |
 | `pipeline/terrain.py` | Vexcel surface heights as terrain tiles; ground height and slope along a route |
+| `pipeline/fixtures.py` | Built-ins (counters, islands, toilets, tubs) and stairs from Matterport's 3D mesh |
 | `pipeline/furnished_scan.py` | Finds which scans are furnished (cheap two-panorama check) |
 | `tests/` | Engine and scoring tests on a hand-built plan: `python -m pytest tests` |
 | `pipeline/splat.py` | Crops Matterport's aerial Gaussian splat to the home and its lot |
@@ -96,7 +101,7 @@ Run it:
 ```bash
 ./run.sh                                     # API on :8000 and the web app on http://localhost:5173
 python scripts/prewarm_3d.py <lat> <lon> <km>   # optional: pre-load 3D tiles for an area you will demo
-python -m pytest tests                       # 23 tests, under a second, no network
+python -m pytest tests                       # 27 tests, under two seconds, no network
 ```
 
 Useful demo links: `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),

@@ -190,3 +190,8 @@ textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   .zone-vignette.red, .zone-vignette.amber { animation: none; opacity: 0.85; }
 }
+
+/* scans without a wall graph: Matterport's own 2D floor plan */
+.note { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: #eef4fb; border: 1px solid #c9dcf2; color: var(--ink); }
+.mp-plan { display: grid; gap: 10px; margin-top: 10px; }
+.mp-plan img { width: 100%; max-height: 66vh; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 10px; }

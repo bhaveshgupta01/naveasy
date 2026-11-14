@@ -178,7 +178,7 @@ export default function BuildingPanel({ id, profiles, route, autoRoute, onRoute,
           const s = u.scores ? Math.min(...profiles.map((p) => u.scores![p].score)) : null
           return (
             <li key={u.model_id}>
-              <button disabled={u.status !== 'measured'} onClick={() => onOpenUnit(u.model_id)}>
+              <button onClick={() => onOpenUnit(u.model_id)}>
                 <span className="dot" style={{ background: s == null ? '#c9ccd1' : scoreColor(s) }} aria-hidden />
                 <span className="grow">
                   {u.caption || 'Scan'}
@@ -188,8 +188,8 @@ export default function BuildingPanel({ id, profiles, route, autoRoute, onRoute,
                     {u.status === 'measured'
                       ? u.problems[0]?.text ?? `${u.stats?.doorways ?? 0} doorways measured, no problems for your needs`
                       : u.status === 'pending'
-                        ? 'Not processed yet'
-                        : 'Scan has no measured walls; no heat map'}
+                        ? 'Not measured yet: open it to measure it now'
+                        : 'No measured walls: 3D tour and Matterport’s 2D floor plan'}
                   </span>
                 </span>
                 {s != null && <strong>{s}</strong>}

@@ -27,6 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 MOCK = ROOT / "frontend" / "public" / "mock"
 DATA = ROOT / "data"
 load_dotenv(ROOT / ".env")
+# .env files from the team kit sometimes name the keys "Anthropic" and "Gemini"; accept both spellings
+for _alias, _name in (("Anthropic", "ANTHROPIC_API_KEY"), ("Gemini", "GEMINI_API_KEY")):
+    if not os.getenv(_name) and os.getenv(_alias):
+        os.environ[_name] = os.environ[_alias]
 
 PROFILES = ("wheelchair", "blind", "deaf", "older")
 Profile = Literal["wheelchair", "blind", "deaf", "older"]

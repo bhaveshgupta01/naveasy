@@ -432,6 +432,8 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
         return math.dist(r["centroid"], (entry["x"], entry["y"])) if r and entry else 0
 
     parts = []
+    told_shape: dict[str, int] = {}          # a reason said once ("against the wall, clear of your route") isn't repeated per piece
+    room_seen: dict[str, int] = {}
     for rid in sorted(by_room, key=room_order):
         room = rooms.get(rid)
         if not room:
@@ -440,7 +442,8 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
         own = door is not None
         if not door:     # an open-plan room: describe it from the front door instead
             door = entry
-        name = room["type"].lower()
+        room_seen[room["type"]] = room_seen.get(room["type"], 0) + 1
+        name = ("" if room_seen[room["type"]] == 1 else "second " if room_seen[room["type"]] == 2 else "other ") + room["type"].lower()
         pieces = []
         for p in by_room[rid]:
             x, y, w, d = p["rect"]
@@ -466,7 +469,20 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
             else:
                 pieces.append(f"Your {label} stands clear of the walls, {where}, {far} in.")
             if p.get("why") and p.get("needs"):          # the need it serves, measured: said right after where it goes
-                pieces[-1] = pieces[-1][:-1] + ": " + _why_clause(p["why"])
+                shape = re.sub(r"[\d.]+", "#", p["why"].lower())
+                if shape in told_shape:
+                    told_shape[shape] += 1
+                else:
+                    told_shape[shape] = 0
+                    clause = _why_clause(p["why"])
+                    pieces[-1] += " " + ("It's " if re.match(r"(against|back|clear|close|near|in view|within|beside|next)", clause) else
+                                         "It " if re.match(r"(faces|leaves|keeps|stays|sits|has|gives|is)\b", clause) else "") + clause
+                    pieces[-1] = pieces[-1][:-1] + "." if not pieces[-1].endswith(".") else pieces[-1]
+                    pieces[-1] = pieces[-1].replace(". It's i", ". I").replace(". It ", ". It ")
+                    m_ = re.search(r"\. (It's |It )?([a-z])", pieces[-1][-len(clause) - 8:])
+                    if m_ and not m_.group(1):
+                        idx = len(pieces[-1]) - len(clause) - 8 + m_.start(2)
+                        pieces[-1] = pieces[-1][:idx] + pieces[-1][idx].upper() + pieces[-1][idx + 1:]
         lead = (f"In the {name}, coming in through its door. " if own else f"In the {name}, facing in from the front door. ") if door else f"In the {name}. "
         parts.append(lead + " ".join(pieces))
     for p in plan.get("placements", []):
@@ -477,6 +493,9 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
                 parts.append(f"The bed leaves about {m.group(1)} inches clear on one side, for getting in and out"
                              + (f", and the bathroom is {m.group(2)} meters from it." if m.group(2) else "."))
             break
+    repeated = sum(told_shape.values())
+    if repeated:
+        parts.append(f"The same holds for the other {repeated} piece{'s' if repeated != 1 else ''}.")
     out = {"placed": " ".join(parts)}
     if plan.get("wont_fit"):
         groups: dict[str, list[str]] = {}

@@ -95,4 +95,4 @@ def test_the_why_is_spoken_after_where_each_piece_goes(plans):
     plan, r = plans
     u = unit_json(plan, analyze(plan), "deaf")
     said = narrate.plan_narration(r["deaf"], u)["text"]
-    assert "Your sofa goes" in said and ": it faces the front door" in said or ": it has a clear view of the front door" in said
+    assert "Your sofa goes" in said and ("It faces the front door" in said or "It has a clear view of the front door" in said)

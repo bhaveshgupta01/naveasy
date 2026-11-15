@@ -1,7 +1,10 @@
 // All data comes from the NavEasy API (backend/app/main.py). Default: http://localhost:8000.
 import type { AgentStep, Building, BuildingDetail, Category, City, FloorplanImage, FurnishPlan, FurnishScore, Furniture, Profile, Relocation, Route, Score, UiAction, Unit } from './types'
 
-export const API = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8000'
+// Dev: the API runs on :8000. A build made with VITE_API_BASE= (empty) is served by the API itself (one address, so one
+// public link works for the app and the data), and calls its own origin.
+const BASE = import.meta.env.VITE_API_BASE as string | undefined
+export const API = BASE === undefined ? 'http://localhost:8000' : BASE || window.location.origin
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`)

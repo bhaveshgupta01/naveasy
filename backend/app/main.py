@@ -853,3 +853,11 @@ def venue_outside(origin: str = "princeton station", profile: Profile = "wheelch
     if out.get("error"):
         raise HTTPException(404, out["error"])
     return out
+
+
+# ---------------------------------------------------------------- the web app, from the same address (for a public link)
+# Build it with `cd frontend && VITE_API_BASE= npm run build`; mounted last, so every API route above wins.
+if (ROOT / "frontend" / "dist" / "index.html").exists() and os.getenv("NAVEASY_SERVE_WEB", "on").lower() not in ("off", "0", "false"):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=ROOT / "frontend" / "dist", html=True), name="web")
+

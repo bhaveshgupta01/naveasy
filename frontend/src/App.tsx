@@ -74,8 +74,14 @@ export default function App() {
     fetchMeta().then(setMeta).catch(() => setError('The NavEasy API is not running. Start it with: uvicorn backend.app.main:app --port 8000'))
   }, [])
   useEffect(() => {
+    let current = true // a slower answer for the city we just left must not overwrite this one
     setAll([])
-    fetchBuildings(city).then(setAll).catch((e) => setError(String(e.message ?? e)))
+    fetchBuildings(city)
+      .then((b) => current && setAll(b))
+      .catch((e) => current && setError(String(e.message ?? e)))
+    return () => {
+      current = false
+    }
   }, [city])
   useEffect(() => {
     if (!profiles.length) return setHexes([])

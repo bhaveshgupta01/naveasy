@@ -139,6 +139,10 @@ export default function App() {
         else if (a.type === 'show_route') {
           setSelectedId(a.building_id)
           setAutoRoute({ category: a.category, profile: a.profile })
+        } else if (a.type === 'draw_route') {
+          if (a.building_id) setSelectedId(a.building_id)
+          setAutoRoute(null)
+          setRoute(a.route)
         } else if (a.type === 'open_drone') {
           const b = allRef.current.find((x) => x.id === a.id)
           if (b) setDrone({ b, pitch: 50 })

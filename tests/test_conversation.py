@@ -140,3 +140,38 @@ def test_a_question_mid_guide_is_answered_not_swallowed(offline):
     cmd = dialogue._rules("how wide is the bathroom door?", st)
     assert dialogue._guide("how wide is the bathroom door?", "how wide is the bathroom door?", cmd, st, []) is None
     assert st["guide"] == "budget"
+
+
+@pytest.fixture
+def venue_stub(monkeypatch):
+    """The venue's measurements replaced by small fixed answers, so the conversation can be checked offline."""
+    import pipeline.venue as V
+    calls = []
+    monkeypatch.setattr(brain, "parse", lambda *a, **k: None)
+    monkeypatch.setattr(dialogue, "find_named", lambda *a, **k: None)
+    monkeypatch.setattr(V, "venue_summary", lambda *a, **k: {"lat": 40.349, "lon": -74.655})
+    monkeypatch.setattr(V, "inside_route", lambda a, b, p, *x, **k: calls.append(("route", a, b)) or {"spoken": f"From the {a} to the {b}: go straight about 2 meters."})
+    monkeypatch.setattr(V, "door_widths", lambda near=None, **k: calls.append(("doors", near)) or {"doors": [
+        {"floor_label": "Floor 3", "rooms": ["Classroom", "Landing"], "clear_in": 64.0, "status": "pass", "entrance": False, "evidence": {"checked": False}},
+        {"floor_label": "Floor 2", "rooms": ["Hallway", "Other"], "clear_in": 67.0, "status": "pass", "entrance": True, "evidence": {"checked": False}}], "artefacts": [{}]})
+    monkeypatch.setattr(V, "stairs", lambda *a, **k: calls.append(("stairs",)) or {"floors": [{"label": "Floor 2", "height_m": 0.0}, {"label": "Floor 3", "height_m": 3.97}],
+                                                                                 "stairs": [{"floor": "Floor 2", "area_m2": 7.8}], "elevator": "not in the scan; needs a site visit", "raised_parts": []})
+    monkeypatch.setattr(V, "outside_route", lambda origin, p: calls.append(("outside", origin)) or {"from": "Princeton station (the Dinky)", "to": "Julis Romo Rabinowitz Building",
+                        "profile": p, "minutes": 19.1, "meters": 1201, "crossings": 2, "hard_spots": ["Slope of about 11% for 44 m."], "notes": [], "caveat": "Which door is step-free needs a site visit.",
+                        "route": {"stretches": []}})
+    return calls
+
+
+def test_the_venue_answers_from_its_measurements(venue_stub):
+    out, st = _talk(["How do I get from the entrance to the classroom in a wheelchair?", "How wide is the classroom door?", "Where are the stairs?", "How do I get here from the Dinky?"])
+    said = [r["text"] for r in out]
+    assert ("route", "entrance", "classroom") in venue_stub and "go straight about 2 meters" in said[0]
+    assert ("doors", "classroom") in venue_stub and "about 64 inches clear" in said[1] and "not yet checked against a tape measure" in said[1]
+    assert "Elevator: not in the scan; needs a site visit." in said[2]
+    assert ("outside", "dinky") in venue_stub and "about 19 minutes" in said[3] and "11 percent for 44 meters" in said[3]
+    assert any(a["type"] == "draw_route" for a in out[3]["ui_actions"]) and st["home"] == "princeton_rabinowitz"
+    assert not any(w in t.lower() for t in said for w in BANNED)
+
+
+def test_units_are_spoken_in_words():
+    assert narrate.speakable("about 1 meters, a step of 14 cm, 44 m of slope, 64 m2") == "about 1 meter, a step of 14 centimeters, 44 meters of slope, 64 square meters"

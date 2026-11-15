@@ -599,3 +599,70 @@ def home_list(homes: list[dict], n_found: int, general: bool = False) -> str:
     k = len(lines)
     ask = "Which would you like to hear about: " + ("one, two or three?" if k == 3 else "one or two?" if k == 2 else "this one?")
     return f"I found {n_found:,} homes. Here are the best {k}. " + " ".join(lines) + " " + ask
+
+
+# ---------------------------------------------------------------- the venue (the building we are standing in)
+
+def venue_doors(d: dict, near: str | None = None) -> str:
+    """Door widths at the venue, spoken; each number says whether a tape measure has checked it."""
+    doors = d.get("doors") or []
+    if not doors:
+        return "The scan has no doorways I can measure there."
+    checked = [x for x in doors if (x.get("evidence") or {}).get("checked")]
+    src = "Checked with a tape measure where noted; the rest are from the scan." if checked else "These are from the 3D scan, not yet checked against a tape measure."
+    if near:
+        mine = [x for x in doors if any(near.lower() in r.lower() for r in x.get("rooms", []))]
+        if mine:
+            bits = [f"about {x['clear_in']:.0f} inches clear, between the {_join([r.lower() for r in x['rooms']])}"
+                    + (f" ({x['evidence']['says']})" if (x.get("evidence") or {}).get("checked") else "") for x in mine[:3]]
+            return f"The {near.lower()} has {len(mine)} doorway{'s' if len(mine) > 1 else ''}: " + "; ".join(bits) + ". A wheelchair needs 32 inches. " + src
+    ok = sum(1 for x in doors if x["status"] == "pass")
+    ent = [x for x in doors if x.get("entrance")]
+    narrow = min(doors, key=lambda x: x["clear_in"])
+    out = [f"{ok} of {len(doors)} doorways in the scan are at least 32 inches clear, what a wheelchair needs."]
+    if ent:
+        out.append(f"The main entrance doors are about {ent[0]['clear_in']:.0f} inches clear.")
+    out.append(f"The narrowest is about {narrow['clear_in']:.0f} inches, on {narrow['floor_label'].lower()}, between the {_join([r.lower() for r in narrow.get('rooms') or ['rooms']])}.")
+    if d.get("artefacts"):
+        out.append(f"{len(d['artefacts'])} narrow gap{'s' if len(d['artefacts']) > 1 else ''} in the scan's walls {'are' if len(d['artefacts']) > 1 else 'is'} too narrow to be a real door, so I left {'them' if len(d['artefacts']) > 1 else 'it'} out; that needs a site visit.")
+    return " ".join(out) + " " + src
+
+
+def venue_stairs(s: dict, way: dict | None = None) -> str:
+    out = []
+    fl = s.get("floors") or []
+    if len(fl) >= 2:
+        out.append(f"The scan covers {_join([f['label'].lower() for f in fl])}, about {abs(fl[-1]['height_m'] - fl[0]['height_m']):.0f} meters apart.")
+    if s.get("stairs"):
+        main = max(s["stairs"], key=lambda x: x["area_m2"])
+        out.append(f"The main flight of stairs is on {main['floor'].lower()}, found in the 3D mesh.")
+    if way and way.get("spoken"):
+        first = way["spoken"].split(" The narrowest")[0]
+        out.append("From the entrance: " + first[0].lower() + first[1:] if first else "")
+    out.append(f"Elevator: {s.get('elevator') or 'unknown'}.")
+    for r in s.get("raised_parts") or []:
+        out.append(f"Part of {r['floor'].lower()}, about {r['area_m2']:.0f} square meters, is {r['says']}.")
+    return " ".join(x for x in out if x)
+
+
+def venue_outside(o: dict) -> str:
+    out = [f"From {o['from']} to the {o['to']}: about {o['minutes']:.0f} minutes and {o['meters']:,} meters for {NEED.get(o['profile'], 'you')}"
+           + (f", with {o['crossings']} street crossing{'s' if o['crossings'] != 1 else ''}." if o.get("crossings") is not None else ".")]
+    if o.get("hard_spots"):
+        out.append(f"{len(o['hard_spots'])} spot{'s' if len(o['hard_spots']) != 1 else ''} to watch. " + " ".join(_say_in(h) for h in o["hard_spots"][:2])
+                   + (f" And {len(o['hard_spots']) - 2} more." if len(o["hard_spots"]) > 2 else ""))
+    out += [n for n in o.get("notes") or []][:1]
+    if o.get("caveat"):
+        out.append(o["caveat"])
+    return " ".join(out).replace("%", " percent")
+
+
+def speakable(text: str) -> str:
+    """Units and abbreviations as they should be heard: "44 m" -> "44 meters", "1 meters" -> "1 meter"."""
+    import re
+    text = re.sub(r"(\d) cm\b", r"\1 centimeters", text)
+    text = re.sub(r"(\d) m\b(?![²2])", r"\1 meters", text)
+    text = re.sub(r"(\d) m2\b|(\d) m²", lambda m: (m.group(1) or m.group(2)) + " square meters", text)
+    text = re.sub(r"\b1 (meters|minutes|steps|inches|feet)\b", lambda m: "1 " + m.group(1)[:-1], text)
+    return text
+

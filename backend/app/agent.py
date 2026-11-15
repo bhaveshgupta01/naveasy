@@ -27,7 +27,8 @@ How you work:
 - The app shows what you look up (the map moves, homes light up, routes draw), so refer to it instead of listing everything.
 - For a blind or low-vision person, give routes turn by turn and describe each crossing, and describe homes with describe_layout: directions from the entry door, room sizes, where the windows are and the light they get.
 - Answers may be read aloud. Write them as speech: no lists, tables, symbols or markdown; say "32 inches", not "32 in".
-- End with one short prompt for what they can ask next."""
+- End with one short prompt for what they can ask next.
+- The venue: the judges are standing in the Julis Romo Rabinowitz Building in Princeton (the HackPrinceton venue). For questions about "this building", the classroom, its doors, stairs, or getting here from the station or parking, use the venue tool. Its numbers come from a 3D scan and each says whether a tape measure has checked it; repeat that."""
 
 TOOLS = [
     {"name": "find_homes", "description": "Find scanned homes and apartment communities ranked by score for the person's profiles. Use for any 'find me a place' request. Returns the top homes with scores, rent and whether the inside was measured from a 3D scan.",
@@ -56,6 +57,16 @@ TOOLS = [
          "pieces": {"type": "array", "items": {"type": "string"}, "description": "e.g. queen bed, sofa, dining table, desk"}, "from_model_id": {"type": "string"}},
          "required": ["target_model_id", "profiles"]}},
 ]
+
+TOOLS.append({"name": "venue", "description": "The HackPrinceton venue, the Julis Romo Rabinowitz Building in Princeton, measured from its 3D scan as a public building: "
+               "summary, the way from the entrance to a room (classroom, landing, stairs) with the narrowest point, door widths, stairs and level changes, "
+               "or the walk from Princeton station (the Dinky) or the nearest parking lot. Each number says whether a tape measure has checked it.",
+               "input_schema": {"type": "object", "properties": {
+                   "ask": {"type": "string", "enum": ["summary", "inside_route", "doors", "stairs", "outside_route"]},
+                   "to_place": {"type": "string", "description": "for inside_route: classroom, landing or stairs"},
+                   "near": {"type": "string", "description": "for doors: a room, e.g. classroom"},
+                   "origin": {"type": "string", "enum": ["dinky", "parking"], "description": "for outside_route"},
+                   "profile": {"type": "string", "enum": ["wheelchair", "blind", "deaf", "older"]}}, "required": ["ask"]}})
 
 PLACES = {"medical center": (29.7079, -95.4010), "texas medical center": (29.7079, -95.4010), "midtown": (29.7437, -95.3795), "downtown": (29.7589, -95.3677),
           "montrose": (29.7453, -95.3964), "galleria": (29.7390, -95.4630), "heights": (29.7989, -95.3987), "museum district": (29.7223, -95.3897),
@@ -169,6 +180,34 @@ def _tool(name: str, a: dict, actions: list) -> dict:
         spoken = narrate.plan_narration(r, api.unit_heatmap(a["target_model_id"], a["profiles"][0]), a["profiles"])["text"]
         return {k: r[k] for k in ("score_empty", "score_before", "score_after", "before_label", "wont_fit", "reasons")} | {
             "placements": [{"label": p["label"], "room": p["room"]} for p in r["placements"]], "where_each_piece_goes": spoken}
+    if name == "venue":
+        from pipeline import venue as V
+
+        from . import narrate
+        prof = a.get("profile") or "wheelchair"
+        s = V.venue_summary()
+        actions.append({"type": "set_map_view", "center": [s["lon"], s["lat"]], "zoom": 17.6, "city": "princeton"})
+        actions.append({"type": "open_building", "id": V.VENUE_ID})
+        ask = a.get("ask", "summary")
+        if ask == "inside_route":
+            actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": prof})
+            r = V.inside_route("entrance", a.get("to_place") or "classroom", prof)
+            return {k: r.get(k) for k in ("from", "to", "meters", "needs_site_visit", "between_floors", "spoken")} | {"legs": [{k: leg.get(k) for k in leg if k != "points"} for leg in r.get("legs", [])]}
+        if ask == "doors":
+            actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": prof})
+            d = V.door_widths(near=a.get("near"))
+            return {"spoken": narrate.venue_doors(d, a.get("near")), "doors": [{k: x.get(k) for k in ("floor_label", "rooms", "clear_in", "status", "entrance", "evidence")} for x in d["doors"]],
+                    "artefacts": len(d.get("artefacts") or []), "how_measured": d.get("how_measured")}
+        if ask == "stairs":
+            st = V.stairs()
+            return {"spoken": narrate.venue_stairs(st, V.inside_route("entrance", "stairs", prof)), "elevator": st.get("elevator"), "raised_parts": st.get("raised_parts")}
+        if ask == "outside_route":
+            o = V.outside_route(a.get("origin") or "dinky", prof)
+            if o.get("route"):
+                actions.append({"type": "draw_route", "route": o["route"], "building_id": V.VENUE_ID})
+            return {k: o.get(k) for k in ("from", "to", "minutes", "meters", "crossings", "hard_spots", "confidence", "notes", "caveat")}
+        return {k: s.get(k) for k in ("name", "address", "floors", "area_m2", "entrances", "doorways", "doorways_pass", "narrowest_door_in", "stairs",
+                                      "route_to_classroom", "scores", "score_note", "problems", "ground_truth", "location_evidence")}
     return {"error": f"unknown tool {name}"}
 
 
@@ -256,7 +295,7 @@ def guard(text: str) -> str:
 def _call_line(name: str, a: dict) -> str:
     keys = {"find_homes": ("city", "near", "max_rent"), "describe_home": ("building_id",), "check_apartment": ("model_id", "profile"),
             "describe_layout": ("model_id",), "route_to": ("building_id", "category"), "match_neighborhoods": ("current_address",),
-            "plan_furniture": ("target_model_id",)}.get(name, ())
+            "plan_furniture": ("target_model_id",), "venue": ("ask", "to_place", "near", "origin")}.get(name, ())
     return name + "(" + ", ".join(f"{k}={a[k]}" for k in keys if a.get(k) is not None) + ")"
 
 

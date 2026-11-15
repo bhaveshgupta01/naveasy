@@ -485,6 +485,48 @@ def _closing(st: dict) -> str:
             + "Ask me anything else about it, like the way to the pharmacy, or say start over to look again.")
 
 
+# ---------------------------------------------------------------- the venue: the building we are standing in
+
+VENUE_WORDS = r"\b(?:this building|the building we'?re in|building we are in|we'?re (?:in|standing in)|rabinowitz|the venue|hackprinceton|hackathon|this room|in here|where we are|princeton|classroom|lecture hall)\b"
+
+
+def _venue(t: str, low: str, st: dict, actions: list) -> str | None:
+    """Questions about the HackPrinceton venue: the way in to the classroom, door widths, the stairs, the walk from
+    the station or parking. Every number comes from pipeline.venue and says whether a tape measure has checked it."""
+    try:
+        from pipeline import venue as V
+    except Exception:  # noqa: BLE001
+        return None
+    if not (re.search(VENUE_WORDS, low) or st.get("home") == V.VENUE_ID):
+        return None
+    ps = st.get("profiles") or ["wheelchair"]
+    st["home"], st["city"] = V.VENUE_ID, "princeton"
+    s = V.venue_summary()
+    actions.append({"type": "set_map_view", "center": [s["lon"], s["lat"]], "zoom": 17.6, "city": "princeton"})
+    actions.append({"type": "open_building", "id": V.VENUE_ID})
+    if re.search(r"station|dinky|train|parking|park(?:ed)? my car|\blot\b|garage|from outside|get here|walk here", low):
+        origin = "parking" if re.search(r"parking|car|\blot\b|garage", low) else "dinky"
+        o = V.outside_route(origin, ps[0])
+        if o.get("route"):
+            actions.append({"type": "draw_route", "route": o["route"], "building_id": V.VENUE_ID})
+        return narrate.venue_outside(o)
+    if re.search(r"stair|steps?\b|elevator|lift|upstairs|downstairs|level", low):
+        return narrate.venue_stairs(V.stairs(), V.inside_route("entrance", "stairs", ps[0]))
+    if re.search(r"door|wide|width|narrow", low):
+        near = next((p for p in ("classroom", "landing", "entrance") if p in low), None)
+        actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": "wheelchair"})
+        return narrate.venue_doors(V.door_widths(near=near), near)
+    if re.search(r"get to|route|way to|how (?:do|can) i|go to|reach|classroom|from the entrance|find the", low):
+        to = next((p for p in ("classroom", "landing", "stairs") if p in low), "classroom")
+        r = V.inside_route("entrance", to, ps[0])
+        actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": ps[0]})
+        return r.get("spoken") or f"I couldn't find a way from the entrance to the {to} in the scan."
+    tour = V.venue_tour(ps[0])
+    sec = tour.get("sections", {})
+    return (" ".join(sec[k] for k in ("overview", "layout", "problems") if k in sec)
+            + " Ask me how to get from the entrance to the classroom, how wide the doors are, where the stairs are, or the way from the station.")
+
+
 # ---------------------------------------------------------------- 2. act
 
 def _rank(st: dict, ps: list[str], center, km: float) -> tuple[list[dict], list[str]]:
@@ -582,6 +624,7 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
     actions: list = []
 
     def done(msg: str, remember: bool = True) -> dict:
+        msg = narrate.speakable(msg)
         if remember:
             st["last"] = msg
         return {"text": msg, "ui_actions": actions, "state": st, "understood_by": "local model " + (brain.model() or "") if smart else "keyword rules"}
@@ -670,6 +713,12 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
             st["home"], st["unit"] = screen["selected_building"], None
         if (screen.get("unit") or {}).get("model_id"):
             st["unit"] = screen["unit"]["model_id"]
+
+    # ---- the building we are standing in
+    if intent != "find_homes" or re.search(VENUE_WORDS, low):
+        said = _venue(t, low, st, actions)
+        if said:
+            return done(said)
 
     # ---- moving
     if intent == "moving":

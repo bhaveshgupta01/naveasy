@@ -285,6 +285,7 @@ export type UiAction = (
   | { type: 'show_route'; building_id: string; category: Category; profile: Profile }
   | { type: 'show_relocation'; request: Record<string, unknown> }
   | { type: 'open_drone'; id: string }
+  | { type: 'draw_route'; route: Route; building_id?: string } // a route from a named origin (the venue's station or parking walk)
 ) & { cue?: string } // voice: run this action when the sentence containing `cue` starts to be spoken
 
 // each need's identity color (no red or green: see colors.ts)

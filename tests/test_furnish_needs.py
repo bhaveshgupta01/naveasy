@@ -27,7 +27,11 @@ def _plan():
 @pytest.fixture(scope="module")
 def plans():
     plan = _plan()
-    return plan, {need: F.plan_furnishing(plan, INV, [need], {}) for need in ("wheelchair", "blind", "deaf", "older")}
+    keep, F.ORDINARY_TRIALS = F.ORDINARY_TRIALS, 1        # the ordinary-layout comparison isn't under test here; keep the suite fast
+    try:
+        yield plan, {need: F.plan_furnishing(plan, INV, [need], {}) for need in ("wheelchair", "blind", "deaf", "older")}
+    finally:
+        F.ORDINARY_TRIALS = keep
 
 
 def _free(plan, placed):

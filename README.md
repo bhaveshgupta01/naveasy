@@ -21,7 +21,7 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Locality heat map | Working; Houston has routed walking times in Midtown and street data inside the loop, the rest is estimated and says so | 18,788 Houston cells, 6,500 LA cells |
 | Routes | Working (Valhalla + OpenStreetMap crossings, curbs, signals, benches; slope measured from Vexcel heights; Vexcel aerial photo and crosswalk check per hard spot) | Curb detail only in central Houston |
 | Furniture finder | Working on scans with a furniture-removed view; labels confirmed by hand for the hero homes | 3 homes; the lived-in one is 7833 Narcissus St (11 pieces) |
-| Furnishing score and planner | Working | Hero plan scores 91; of 15 ordinary layouts of the same pieces, 7 block a path and drop to about 48 |
+| Furnishing score and planner | Working, and different per need: wheelchair keeps 30 x 48 in beside the bed and the turning circles; blind keeps every piece against a wall and off the routes from the front door (a coffee table that can only sit in a route goes on the won't-fit list); deaf keeps the front door in view of the sofa; older adults get the shortest night walk from the bed to the bathroom. Each piece says why it goes where it does | Hero plan scores 91; of 15 ordinary layouts of the same pieces, 9 block a path and drop to about 49 |
 | Relocation match | Working, LA to Houston and back | |
 | Aerial 3D map | Working: Vexcel aerial tiles as the base map and Vexcel surface heights as 3D terrain past zoom 15 (both proxied and cached; the key stays on the server), rotate and tilt, score pillars | Midtown pre-loaded |
 | Outside of a home in 3D | Working for every building from Vexcel surface heights + aerial photo; drone Gaussian splat viewer for the homes that have one (checked: renders the home in detail) | 230 buildings with a splat |
@@ -110,7 +110,7 @@ Run it:
 ```bash
 ./run.sh                                     # API on :8000 and the web app on http://localhost:5173
 python scripts/prewarm_3d.py <lat> <lon> <km>   # optional: pre-load 3D tiles for an area you will demo
-python -m pytest tests                       # under two seconds, no network
+python -m pytest tests                       # about five seconds, no network
 ```
 
 Useful demo links: `?city=princeton&home=princeton_rabinowitz` (the venue), `?unit=P3S6VUTP3qB` (its floor plan), `?voice=gemini` (Gemini voice), `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),

@@ -794,6 +794,9 @@ def _explain(plan: Plan, f: Floor, placed: list, needs: _Needs, profiles: list[s
     return reasons
 
 
+ORDINARY_TRIALS = 15   # ordinary layouts of the same pieces, the comparison every plan is reported against
+
+
 def plan_furnishing(target: "str | Plan", inventory: list[dict], profiles: list[str], preferences: dict | None = None) -> dict:
     """Place a person's furniture for their needs. `target` is a model id, or a Plan already loaded."""
     prefs = preferences or {}
@@ -826,7 +829,7 @@ def plan_furnishing(target: "str | Plan", inventory: list[dict], profiles: list[
     # We report their range and show the middle one, so the baseline isn't one hand-picked bad layout.
     rng = np.random.default_rng(7)
     trials = []
-    for _ in range(15):
+    for _ in range(ORDINARY_TRIALS):
         lay, _w = _place_all(plan, f, inv, profiles, prefs, accessible=False, rng=rng)
         trials.append((_combined(analyze(plan, lay, layers=False), profiles), lay))
     trials.sort(key=lambda t: t[0])

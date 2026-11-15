@@ -83,7 +83,7 @@ export default function BuildingPanel({ id, profiles, route, autoRoute, onRoute,
       <p className="muted">
         {b.address}
         <br />
-        {b.kind === 'home' ? 'Home' : 'Apartment community'}
+        {b.kind === 'home' ? 'Home' : b.kind === 'public_building' ? 'Public building' : 'Apartment community'}
         {b.stories ? ` · ${b.stories} ${b.stories === 1 ? 'story' : 'stories'}` : ''}
         {b.year_built ? ` · built ${b.year_built}` : ''}
         {b.rent_min ? ` · from $${b.rent_min.toLocaleString()}/mo` : b.price ? ` · $${b.price.toLocaleString()}` : ''}
@@ -100,7 +100,9 @@ export default function BuildingPanel({ id, profiles, route, autoRoute, onRoute,
         </span>
       </div>
       <p className="fine">
-        {b.inside
+        {b.score_note
+          ? b.score_note
+          : b.inside
           ? `Half building, half inside: ${b.inside.units_measured} unit${b.inside.units_measured === 1 ? '' : 's'} measured from 3D scans.`
           : 'Building evidence only: no unit here has a measured floor plan yet, so confidence is low.'}
       </p>

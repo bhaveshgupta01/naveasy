@@ -318,7 +318,7 @@ def _entrances(plan: Plan, geo_offset: float | None) -> list[dict]:
             pick = max(xs, key=lambda d: d["x"], default=None)                   # the doors on the raised side
         if pick:
             side = _compass_side(f, pick, geo_offset)
-            out.append({"floor": f.index, "door": pick, "name": f"{side} doors, {f.label.lower()}".strip() if side else f"doors on {f.label.lower()}"})
+            out.append({"floor": f.index, "door": pick, "name": f"{side} doors on {f.label.lower()}" if side else f"doors on {f.label.lower()}"})
     return out
 
 
@@ -341,14 +341,23 @@ def _geo_offset(model_id: str) -> float | None:
     return None
 
 
-@lru_cache(maxsize=4)
+_PLANS: dict[str, Plan] = {}
+
+
 def venue_plan(model_id: str = PRIMARY) -> Plan:
-    """The scan as a public building: human room labels, artefact doorways set aside, steps checked on the mesh,
-    stairs found anywhere, raised parts of floors found, the entrances chosen. Cached."""
-    from .clients import matterport
-    raw = matterport.geometry(model_id)
+    """The scan as a public building (cached): human room labels, artefact doorways set aside, steps checked on the
+    mesh, stairs found anywhere, raised parts of floors found, the entrances chosen."""
+    if model_id not in _PLANS:
+        from .clients import matterport
+        mesh, mesh_from = _mesh(model_id)
+        offset = _geo_offset(model_id) if _geo_offset(model_id) is not None else _geo_offset(PRIMARY)
+        build_plan(model_id, matterport.geometry(model_id), mesh, offset, mesh_from)
+    return _PLANS[model_id]
+
+
+def build_plan(model_id: str, raw: dict, mesh=None, offset: float | None = None, mesh_from: str | None = None) -> Plan:
+    """venue_plan's work on given geometry and mesh (vertices, faces) or None; the result is cached under model_id."""
     plan = load_plan(model_id, _patched_geometry(raw), fixtures=False)
-    mesh, mesh_from = _mesh(model_id)
     levels = floor_heights(plan, raw, mesh)
     surfaces = surface_maps(plan, mesh, levels)
     mark_artefacts(plan, raw, levels)
@@ -360,7 +369,6 @@ def venue_plan(model_id: str = PRIMARY) -> Plan:
         for d in f.doors:
             d["entry"] = False
     plan.fixtures = "mesh" if mesh is not None else None
-    offset = _geo_offset(model_id) if _geo_offset(model_id) is not None else _geo_offset(PRIMARY)
     ents = _entrances(plan, offset)
     for e in ents:
         e["door"]["entry"] = True
@@ -368,6 +376,8 @@ def venue_plan(model_id: str = PRIMARY) -> Plan:
         plan.entry_floor, plan.entry = ents[0]["floor"], ents[0]["door"]
     plan.venue = {"levels": levels, "mesh_from": mesh_from, "entrances": ents, "raised": raised_zones(plan, surfaces, levels),  # type: ignore[attr-defined]
                   "geo_offset_deg": offset}
+    _PLANS[model_id] = plan
+    _dist.cache_clear()
     return plan
 
 
@@ -435,7 +445,8 @@ def _bottleneck(f, dist: np.ndarray, free: np.ndarray, a: tuple[int, int], b: tu
             lo = mid
         else:
             hi = mid
-    return round(lo, 2)
+    # distances run between cell centers, which overstates a clear width by about one cell: report the narrower value
+    return round(max(0.0, lo - CELL), 2)
 
 
 def _words(points: list) -> str:
@@ -627,7 +638,8 @@ def analyze_public(plan: Plan, layers: bool = True) -> dict:
     blind = {"stairs_and_level_changes": (0.5, max(0.0, 1 - 0.2 * (len(stairs) + len(steps) + len(plan.venue["raised"])))),
              "simple_routes": (0.5, share([1.0 if p["turns"] <= 4 else 0.5 for p in out["paths"]], 0.5))}
     deaf = {"open_sightlines": (1.0, 0.5)}
-    conf = {"wheelchair": "medium", "older": "low", "blind": "low", "deaf": "low"}
+    # low: the entrances are assumed and the way between floors is unknown until someone walks it
+    conf = {"wheelchair": "low", "older": "low", "blind": "low", "deaf": "low"}
     for prof, checks in (("wheelchair", wc), ("older", older), ("blind", blind), ("deaf", deaf)):
         out["checks"][prof] = {k: {"weight": w, "value": round(float(v), 2)} for k, (w, v) in checks.items()}
         out["scores"][prof] = {"score": round(100 * sum(w * v for w, v in checks.values())), "confidence": conf[prof]}
@@ -781,6 +793,112 @@ def venue_summary(model_id: str = PRIMARY) -> dict:
             "ground_truth": {"checked_on": gt.get("checked_on"), "items_checked": sum(1 for v in (gt.get("items") or {}).values() if v.get("tape_in") is not None)},
             "location_evidence": "Matterport's coordinates fall inside OpenStreetMap's footprint of the Julis Romo Rabinowitz Building (way 1086964029).",
             "legend": LEGENDS["wheelchair"]}
+
+
+def _relative(heading: tuple[float, float], to: tuple[float, float]) -> str:
+    ang = math.degrees(math.atan2(heading[0] * to[1] - heading[1] * to[0], heading[0] * to[0] + heading[1] * to[1]))
+    a, side = abs(ang), ("left" if ang > 0 else "right")
+    return "straight ahead" if a < 25 else f"ahead on your {side}" if a < 70 else f"on your {side}" if a < 115 else f"behind you on your {side}" if a < 160 else "behind you"
+
+
+def venue_tour(profile: str = "wheelchair", model_id: str = PRIMARY) -> dict:
+    """A spoken walk-through of the venue from its main entrance, in the shape of narrate.unit_narration
+    ({title, sections, paragraphs}), built only from what was measured."""
+    plan = venue_plan(model_id)
+    ents = plan.venue["entrances"]
+    sec: dict[str, str] = {}
+    walked = [f for f in plan.floors if _walked_on(f)]
+    area = sum(r["area_m2"] for f in walked for r in f.rooms)
+    sec["overview"] = (f"The {NAME}, where HackPrinceton is held. The 3D scan covers about {area * 10.764:,.0f} square feet on {len(walked)} floors, "
+                       f"{' and '.join(f.label.lower() for f in walked)}, about {abs(plan.venue['levels'].get(walked[-1].index, 0) - plan.venue['levels'].get(walked[0].index, 0)):.0f} meters apart.")
+    if ents:
+        e = ents[0]
+        f = plan.floors[e["floor"]]
+        d = e["door"]
+        ux, uy, nx_, ny_ = _door_axes(d)
+        free = _free(f)
+        r, c = f.rc(d["x"] + nx_ * 0.8, d["y"] + ny_ * 0.8)
+        heading = (nx_, ny_) if free[r, c] else (-nx_, -ny_)
+        groups: dict[str, list[str]] = {}
+        for k, p in places(model_id).items():
+            if p["floor"] != e["floor"] or p["kind"] == "entrance":
+                continue
+            v = (p["x"] - d["x"], p["y"] - d["y"])
+            groups.setdefault(_relative(heading, v), []).append(f"{p['name']}, about {math.hypot(*v):.0f} meters")
+        lay = f"We assume you come in by the {e['name']}, a doorway about {d['est_clear_in']:.0f} inches clear, into the main hall."
+        order = ["straight ahead", "ahead on your left", "ahead on your right", "on your left", "on your right", "behind you on your left", "behind you on your right", "behind you"]
+        if groups:
+            lay += " Facing in: " + ". ".join(f"{k[0].upper() + k[1:]}, {', '.join(groups[k])}" for k in order if k in groups) + "."
+        sec["layout"] = lay
+        if len(ents) > 1:
+            e2 = ents[1]
+            sec["layout"] += (f" There are also {e2['name']}, about {e2['door']['est_clear_in']:.0f} inches clear by the scan"
+                              f"{' (the other processing of the same scan reads it wider, so we will tape it)' if model_id == PRIMARY else ''}.")
+    r = inside_route("entrance", "classroom", profile, model_id)
+    if not r.get("error"):
+        sec["route"] = "To the classroom. " + r["spoken"]
+    d = door_widths(model_id=model_id)
+    ok = sum(1 for x in d["doors"] if x["status"] == "pass")
+    sec["doors"] = (f"{ok} of {len(d['doors'])} doorways in the scan are at least 32 inches clear; the narrowest is about {d['narrowest_in']:.0f} inches. "
+                    + (f"{len(d['artefacts'])} narrow gaps in the scan's walls aren't real doors, and we set them aside. " if d["artefacts"] else "")
+                    + "None of these widths has been checked with a tape measure yet." if not ground_truth().get("checked_on") else "")
+    s = stairs(model_id)
+    bits = []
+    if s["stairs"]:
+        bits.append(f"Stairs join the floors; the main flight is on {s['stairs'][0]['floor'].lower()}, found in the 3D mesh")
+    if s["landings"]:
+        bits.append(f"there are {len(s['landings'])} landings upstairs, beside the classroom")
+    for z in s["raised_parts"]:
+        bits.append(f"part of {z['floor'].lower()} is {z['says']}")
+    bits.append(f"the scan shows no elevator, so a step-free way upstairs {SITE_VISIT}")
+    text = "; ".join(bits) + "."
+    sec["levels"] = text[0].upper() + text[1:]
+    sec["caveat"] = ("This comes from the 3D scan. Which doors are entrances is our assumption, and restrooms, door hardware, signage and alarms "
+                     "aren't measured. We are checking the doors with a tape measure.")
+    keys = ["overview", "layout", "route", "doors", "levels", "caveat"]
+    return {"title": NAME, "sections": sec, "paragraphs": [sec[k] for k in keys if k in sec], "public": True}
+
+
+def measurement_sheet(model_id: str = PRIMARY) -> list[dict]:
+    """What to check with a tape measure on the walk-through: the doors on the main routes, the door the two
+    processings disagree on, the narrowest corridor, the raised floor, the gaps, the way upstairs. Each item has
+    the key ground_truth/princeton.json uses, where to find it, and the engine's value."""
+    plan = venue_plan(model_id)
+    off = plan.venue["geo_offset_deg"]
+    out = []
+    for f in plan.floors:
+        if not _walked_on(f):
+            continue
+        for d in f.doors:
+            side = _compass_side(f, d, off)
+            names = [t.lower() if t != "Other" else "an unlabeled space" for t in d["room_types"]]
+            rooms = ("the " + " and ".join(names)).replace("the an ", "an ") if len(names) > 1 else (f"the edge of the {names[0]}" if names else "the edge of the scan")
+            if d.get("artefact"):
+                if "narrow" in (d.get("artefact_why") or ""):
+                    out.append({"key": f"door_{d['id']}", "what": f"Gap in the wall, {side} side of {f.label.lower()}, at {rooms}",
+                                "engine": f"{d['width_m'] * 100:.0f} cm wide: set aside as not a real door", "scan_in": round(d["width_m"] / 0.0254, 1),
+                                "measure": "What is there? If it is a door, its clear width."})
+                continue
+            if not d["is_door"]:
+                continue
+            what = ("Entrance (assumed): " if d.get("entry") else "Door: ") + f"{side} side of {f.label.lower()}, {'between ' + rooms if len(names) > 1 else 'at ' + rooms}"
+            if d.get("low_opening"):
+                what += f" (the scan says only {d['height_m']:.2f} m tall)"
+            out.append({"key": f"door_{d['id']}", "what": what, "engine": f"{d['est_clear_in']:.1f} in ({d['clear_m'] * 100:.0f} cm) clear, from a {d['width_m'] * 100:.0f} cm opening",
+                        "scan_in": d["est_clear_in"], "measure": "Clear width with the door open at 90 degrees, stop to stop (or leaf to stop)."
+                        + (" Also the step or sill height at this door." if _step_fact(d) else "")})
+    r = inside_route("entrance", "classroom", "wheelchair", model_id)
+    for leg in r.get("legs", []):
+        out.append({"key": f"corridor_entrance_classroom_{leg['floor']}", "what": f"Narrowest corridor on the way from the entrance to the {'stairs' if leg.get('to') else 'classroom'}, {leg['floor_label'].lower()}",
+                    "engine": f"{leg['narrowest_in']} in ({leg['narrowest_m'] * 100:.0f} cm)", "scan_in": leg["narrowest_in"],
+                    "measure": "Wall to wall (or wall to a fixed object) at the tightest point you find on that walk."})
+    for z in plan.venue["raised"]:
+        out.append({"key": f"raised_{z['floor']}", "what": f"Raised part of {plan.floors[z['floor']].label.lower()} ({_compass_side(plan.floors[z['floor']], {'x': z['x'], 'y': z['y']}, off)} side, about {z['area_m2']:.0f} m2)",
+                    "engine": f"{z['rise_m'] * 100:.0f} cm higher than the rest", "scan_in": round(z["rise_m"] / 0.0254, 1),
+                    "measure": "Height difference, and whether a step or a ramp joins the two levels (and the ramp's length)."})
+    out.append({"key": "elevator", "what": "A step-free way between the scanned floors", "engine": "not in the scan", "scan_in": None,
+                "measure": "Is there an elevator? Where, and its door's clear width."})
+    return out
 
 
 def building_record(cached: bool = True) -> dict:

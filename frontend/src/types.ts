@@ -3,7 +3,7 @@ import { NEED_COLOR } from './colors'
 
 export type Profile = 'wheelchair' | 'blind' | 'deaf' | 'older'
 export type Confidence = 'low' | 'medium' | 'high'
-export type City = 'houston' | 'la'
+export type City = 'houston' | 'la' | 'princeton' // princeton: the HackPrinceton venue only (pipeline/venue.py)
 export type Category = 'hospital' | 'clinic' | 'pharmacy' | 'grocery' | 'transit' | 'restaurant' | 'school' | 'park'
 
 export interface Score {
@@ -13,7 +13,8 @@ export interface Score {
 
 export interface Building {
   id: string
-  kind: 'apartment_community' | 'home'
+  kind: 'apartment_community' | 'home' | 'public_building'
+  score_note?: string | null // public buildings: what the score measures
   name: string
   address?: string
   city: City

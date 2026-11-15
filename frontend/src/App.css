@@ -212,3 +212,5 @@ textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .steps .step.subagent { color: var(--ink); } .steps .step.plan { color: var(--ink); } .steps .step.warn { color: #9a5b00; } .steps .step.error { color: #b3261e; }
 .steps strong { font-weight: 600; }
 
+.voice-open { margin: 2px 0 8px; width: 100%; background: #101828; color: #fff; border: 0; border-radius: 10px; padding: 9px 12px; font-weight: 700; text-align: left; display: grid; gap: 1px; }
+.voice-open span { font-weight: 400; font-size: 12px; color: #c9d3e6; }

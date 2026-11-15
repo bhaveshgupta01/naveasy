@@ -30,12 +30,12 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Scans without measured walls | Clickable: Matterport's own 2D floor plan (schematic with room areas, or a top-down photo) and the 3D tour; the app says plainly that there is no heat map | 7,220 of 13,771 scans |
 | Matterport 3D tour with the heat map inside it | Working: the chosen need's heat map is drawn on the scan's floor with door widths, too-narrow door gates, turning circles, main paths and furniture (or your furniture plan), moving with Matterport's camera; walls hide what is behind them. Walking inside, the screen edges pulse red where that need can't go or is at risk and amber where it's tight, with the reason on screen; pointing at the floor previews a spot before you step there; blind mode speaks each warning. Problem pins fly the camera to each problem. A furniture plan is shown in Matterport's furniture-removed view of the scan ("Furniture removed" switch) | localhost only (SDK key). The embed SDK can't add objects to Matterport's own scene, so this is a camera-synced overlay (`frontend/src/components/tourOverlay.ts`, `frontend/src/zones.ts`) |
 | Guided demo | Working: seven steps that run live (`?panel=story`) | |
-| Voice mode | Working, on open-source speech that runs locally: Whisper (`base.en`, via faster-whisper) hears and Piper (`en_US-lessac-medium`) speaks, so nothing said leaves the machine. Hold Space or tap, speak, and the answer is read aloud while the app moves behind it (press V). Checked in a real browser: three spoken questions heard correctly and answered in about 4 s each. Falls back to the browser's speech if the models aren't installed | Not yet tried with a physical microphone |
+| Speak button (voice) | Working: a small speak button docked beside the chat button (press V). The agent leads: it asks what help you need, then budget and area (or your current address, for somewhere like where you live now), reads back three homes and asks for one, two or three, gives a broker's summary (rent, layout, what was measured inside, minutes to places, the main weakness, what to verify before signing), tours the home from the entry door, then places your own furniture and says where each piece goes from each room's doorway. The map and panels stay visible and move as it talks (the map flies to each home as it is read out); a small caption shows only the last thing heard and said. Speech is open source and local: Whisper (`base.en`, faster-whisper) hears and Piper (`en_US-lessac-medium`) speaks. Checked in a headless browser and by script; about 1 s a turn with keyword rules, 4 s with the local model | Not yet tried with a physical microphone |
 | Understanding free speech | Working on a local open-source language model through Ollama (`qwen2.5:7b`; `backend/app/brain.py`). It turns what you say into a command (needs, budget, place, qualities such as safe streets or near a bus stop) and words answers from retrieved facts; it never supplies facts. About 4 s per turn on an M-series Mac. Without Ollama it falls back to keyword rules | `ollama pull qwen2.5:7b` |
 | Questions about what's on screen | Working: the app sends a snapshot of what is shown (home, unit, route, list, moving results) and the assistant answers from those facts only, or says it isn't on screen (`backend/app/screen.py`) | |
 | Spoken home descriptions | Working: layout from the entry door, room sizes, window directions and sun (from Matterport's compass alignment), doorways, problems (`backend/app/narrate.py`) | |
-| Agent | Tool-calling Claude agent written but **not yet run with a key**; a rule-based fallback answers without one | Needs `ANTHROPIC_API_KEY` |
-| Voice | Browser speech in and out in the chat panel; Gemini Live token endpoint written, **untested** | Needs `GEMINI_API_KEY` |
+| Agent | Working, three paths behind one entry point (`POST /agent/chat`): voice and the guided conversation run locally; typed multi-step home searches run as a planned LangChain deepagents run (a planner with a to-do list and four subagents: building from CoStar, inside from Matterport, outside from Vexcel and routes, and a checker that re-runs failing findings and marks the rest "needs a site visit"); other typed questions go to one Claude agent (`claude-opus-5-5`) with seven tools. The chat shows the plan, each subagent's task and every tool call, live and under the answer, and every number in an answer is matched against the tool results | Single agent about 12 s; planned run about 85 s live (the three demo requests are cached: `python scripts/cache_deep_runs.py`); `NAVEASY_DEEP=off` turns the planned mode off |
+| Gemini Live | Token endpoint works; a Live session with `gemini-3.8-live` (v1alpha) answered in 0.7 s from Python. Not wired into the browser; local speech stays the default (`docs/VOICE.md`) | `GEMINI_API_KEY` (or `Gemini`) |
 
 Built-ins (counters, kitchen islands, vanities, toilets, tubs) and the stairs themselves come from Matterport's 3D mesh, fetched
 the first time a home is opened (`python -m pipeline.fixtures <model_id>`; `python -m pipeline.score_units --meshes` rescores the
@@ -47,7 +47,7 @@ blind plum, deaf pink, older adults gold; checked for color-blind separation). B
 red score bands (75+, 50-74, under 50; yellow when selected), and the "Only homes scoring 75 or more" filter matches
 the green band. All values are in `frontend/src/colors.ts`.
 
-Known gaps: building approach (entrance steps, parking) is not checked yet; LA has no street-level data cached; LangChain deepagents and Photon are not wired.
+Known gaps: building approach (entrance steps, parking) is not checked yet; LA has no street-level data cached; Photon is not wired.
 
 ## Repo layout
 
@@ -68,7 +68,7 @@ Known gaps: building approach (entrance steps, parking) is not checked yet; LA h
 | `pipeline/furnished_scan.py` | Finds which scans are furnished (cheap two-panorama check) |
 | `tests/` | Engine and scoring tests on a hand-built plan: `python -m pytest tests` |
 | `pipeline/splat.py` | Crops Matterport's aerial Gaussian splat to the home and its lot |
-| `backend/app/main.py`, `backend/app/agent.py` | FastAPI app and the agent |
+| `backend/app/main.py`, `backend/app/agent.py`, `backend/app/deep.py`, `backend/app/dialogue.py` | FastAPI app; the agent's router and Claude agent; the planned deepagents mode; the local, agent-led conversation |
 | `frontend/` | React + Vite + MapLibre app |
 
 ## Quick start
@@ -107,7 +107,7 @@ Run it:
 ```bash
 ./run.sh                                     # API on :8000 and the web app on http://localhost:5173
 python scripts/prewarm_3d.py <lat> <lon> <km>   # optional: pre-load 3D tiles for an area you will demo
-python -m pytest tests                       # 27 tests, under two seconds, no network
+python -m pytest tests                       # under two seconds, no network
 ```
 
 Useful demo links: `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),

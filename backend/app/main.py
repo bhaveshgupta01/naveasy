@@ -531,6 +531,19 @@ def agent_chat(req: ChatRequest):
     return agent.chat(req.messages, req.context)
 
 
+@app.get("/agent/progress/{request_id}")
+def agent_progress(request_id: str):
+    """The steps of an answer being worked on (plan, subagents, tool calls, checks), for the app to show while it waits."""
+    from backend.app import agent
+    return {"steps": agent.progress(request_id)}
+
+
+@app.get("/agent/modes")
+def agent_modes():
+    from backend.app import brain, deep
+    return {"claude": bool(os.getenv("ANTHROPIC_API_KEY")), "deep": deep.enabled(), "local_model": brain.model()}
+
+
 @app.post("/voice/token")
 def voice_token():
     """Mint a short-lived Gemini Live token for the browser (docs/VOICE.md). The API key never leaves the server."""

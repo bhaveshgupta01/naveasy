@@ -13,8 +13,9 @@ import math
 import os
 import re
 
-SYSTEM = """You are NavEasy's housing guide for people with disabilities in Houston and Los Angeles.
-The person may use a wheelchair, be blind or have low vision, be deaf or hard of hearing, or be an older adult with low stamina. Profiles: wheelchair, blind, deaf, older.
+SYSTEM = """You are NavEasy, a housing guide who talks like a knowledgeable real estate broker, for homes in Houston and Los Angeles.
+You serve everyone. Many clients use a wheelchair, are blind or have low vision, are deaf or hard of hearing, or are older adults with low stamina (profiles: wheelchair, blind, deaf, older); others have no particular need.
+About a property, answer the way a good broker would: specific and confident, built from the measured facts: the rent, the layout, what was measured inside, what's nearby in minutes, the main weakness stated plainly, and what to verify before signing. describe_home returns a broker_summary built from the data; use it.
 
 How you work:
 - Every number you state must come from a tool result in this conversation. If a tool has no data, say so; never estimate.
@@ -61,7 +62,29 @@ PLACES = {"medical center": (29.7079, -95.4010), "texas medical center": (29.707
           "downtown la": (34.0407, -118.2468), "koreatown": (34.0618, -118.3004), "santa monica": (34.0195, -118.4912), "hollywood": (34.0928, -118.3287)}
 
 
-def _run_tool(name: str, a: dict, actions: list) -> dict:
+def _remember(state: dict | None, name: str, a: dict, out: dict) -> None:
+    """What a tool found becomes part of the conversation: the homes listed, the home and unit being discussed."""
+    if state is None or not isinstance(out, dict) or out.get("error"):
+        return
+    if name == "find_homes" and out.get("homes"):
+        state["homes"] = [{"id": h["building_id"], "name": h["name"], "score": h["score"]} for h in out["homes"]]
+        state["profiles"], state["city"] = a["profiles"], a["city"]
+        state["home"], state["unit"] = None, None
+    elif name in ("describe_home", "route_to"):
+        state["home"] = a["building_id"]
+    elif name in ("check_apartment", "describe_layout"):
+        state["unit"] = a["model_id"]
+    elif name == "plan_furniture":
+        state["unit"] = a["target_model_id"]
+
+
+def _run_tool(name: str, a: dict, actions: list, state: dict | None = None) -> dict:
+    out = _tool(name, a, actions)
+    _remember(state, name, a, out)
+    return out
+
+
+def _tool(name: str, a: dict, actions: list) -> dict:
     from backend.app import main as api
     if name == "find_homes":
         ps = a["profiles"]
@@ -90,9 +113,18 @@ def _run_tool(name: str, a: dict, actions: list) -> dict:
             "vertical_access": b["components"]["vertical_access"]["why"], "built": b.get("year_built"),
             "best_unit": (b.get("inside") or {}).get(ps[0], {}).get("best_model")} for b in top]}
     if name == "describe_home":
+        from . import dialogue, narrate
         d = api.building(a["building_id"], ",".join(a["profiles"]))
         actions.append({"type": "open_building", "id": a["building_id"]})
-        return {k: d.get(k) for k in ("name", "address", "kind", "stories", "elevator", "walkup", "year_built", "rent_min", "rent_max", "combined", "scores", "components", "nearest", "checklist")} | {
+        uid = dialogue._best_unit(a["building_id"], a["profiles"])
+        best = None
+        if uid:
+            try:
+                best = api.unit_heatmap(uid, a["profiles"][0])
+                best = best if best.get("has_graph") else None
+            except Exception:  # noqa: BLE001
+                best = None
+        return {"broker_summary": narrate.broker_pitch(d, best, a["profiles"])} | {k: d.get(k) for k in ("name", "address", "kind", "stories", "elevator", "walkup", "year_built", "rent_min", "rent_max", "combined", "scores", "components", "nearest", "checklist")} | {
             "units": [{"model_id": u["model_id"], "caption": u["caption"], "status": u["status"], "scores": u["scores"], "problems": [p["text"] for p in u["problems"]]} for u in d["units"][:6]]}
     if name == "check_apartment":
         u = api.unit_heatmap(a["model_id"], a["profile"])
@@ -127,53 +159,158 @@ def _run_tool(name: str, a: dict, actions: list) -> dict:
         inv = [{"label": p} for p in a.get("pieces") or []] or (inventory_from(a["from_model_id"]) if a.get("from_model_id") else [])
         if not inv:
             return {"error": "No furniture given."}
+        from . import narrate
         r = plan_furnishing(a["target_model_id"], inv, a["profiles"], {})
         actions.append({"type": "open_unit", "model_id": a["target_model_id"], "profile": a["profiles"][0], "tab": "plan", "plan": r})
+        spoken = narrate.plan_narration(r, api.unit_heatmap(a["target_model_id"], a["profiles"][0]), a["profiles"])["text"]
         return {k: r[k] for k in ("score_empty", "score_before", "score_after", "before_label", "wont_fit", "reasons")} | {
-            "placements": [{"label": p["label"], "room": p["room"]} for p in r["placements"]]}
+            "placements": [{"label": p["label"], "room": p["room"]} for p in r["placements"]], "where_each_piece_goes": spoken}
     return {"error": f"unknown tool {name}"}
 
 
+# request id -> the steps of the work in progress, so the app can show them while it waits (GET /agent/progress/{id})
+PROGRESS: dict[str, list] = {}
+
+
+def progress(rid: str) -> list:
+    if len(PROGRESS) > 200:                      # keep the last runs only
+        for k in list(PROGRESS)[:-100]:
+            PROGRESS.pop(k, None)
+    return PROGRESS.get(rid, [])
+
+
+def route(text: str, context: dict) -> str:
+    """Which path answers: "local" (voice, the guided conversation, no key), "deep" (planned, multi-step home
+    searches), or "claude" (one tool-calling agent, for everything else typed)."""
+    from . import deep, dialogue
+    st = context.get("state") or {}
+    if context.get("channel") == "voice" or text == dialogue.GUIDE_START or st.get("guide") in dialogue.GUIDE_STAGES:
+        return "local"
+    if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("NAVEASY_AGENT", "").lower() == "local":
+        return "local"
+    if deep.enabled() and deep.wants_plan(text, st):
+        return "deep"
+    return "claude"
+
+
 def chat(messages: list[dict], context: dict | None = None) -> dict:
+    """The one entry point, channel-neutral: text and state in, text, UI actions and state out."""
     context = context or {}
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    last = next((m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+    how = route(last.strip(), context)
+    try:
+        if how == "deep":
+            from . import deep
+            try:
+                return deep.run(last, context)
+            except Exception as e:  # noqa: BLE001 - the planned mode is optional; fall back to the single agent
+                out = claude(last, context)
+                out["steps"] = [{"kind": "note", "text": f"Planned mode failed ({str(e)[:120]}); answered by the single agent instead."}] + out.get("steps", [])
+                return out
+        if how == "claude":
+            return claude(last, context)
         from . import dialogue
-        last = next((m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+        out = dialogue.respond(last, context.get("state"), context)
+        out["mode"] = "local"
+        return out
+    except Exception as e:  # noqa: BLE001 - a spoken interface must always answer
+        return {"text": f"Sorry, I couldn't look that up ({str(getattr(e, 'detail', e))[:120]}). Please try again.", "ui_actions": [], "state": context.get("state") or {}, "mode": how}
+
+
+NUM = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
+
+
+def audit_numbers(text: str, evidence: list[str]) -> dict:
+    """Every number in the answer should appear in a tool result. Returns the ones that don't (unit conversions and
+    list numbering aside), so an answer that invents a figure is caught before anyone hears it."""
+    blob = " ".join(evidence)
+    found = {n.replace(",", "") for n in NUM.findall(blob)}
+    # numbers the tools carry as floats are spoken rounded: 13.8 minutes -> 14; 0.86 -> 86 percent
+    for n in list(found):
         try:
-            return dialogue.respond(last, context.get("state"), context)
-        except Exception as e:  # noqa: BLE001 - a spoken interface must always answer
-            return {"text": f"Sorry, I couldn't look that up ({str(getattr(e, 'detail', e))[:120]}). Please try again.", "ui_actions": [], "state": context.get("state") or {}}
+            v = float(n)
+        except ValueError:
+            continue
+        found |= {str(round(v)), str(int(v)), str(round(v * 100)), f"{round(v * 3.281)}", f"{round(v / 0.0254)}", f"{round(v * 10.764)}", f"{round(v * 10.764):,}".replace(",", "")}
+    said = [n.replace(",", "") for n in NUM.findall(text)]
+    small = {str(i) for i in range(0, 11)}           # list numbering, "one of three", "5-foot circle"
+    loose = [n for n in said if n not in found and n not in small and n not in ("32", "36", "60", "34", "1991", "2010")]
+    return {"numbers": len(said), "unsupported": sorted(set(loose))}
+
+
+WORDS_NOT_TO_USE = [(re.compile(r"\b(?:fully |ADA[- ])?(?:wheelchair[- ])?accessible\b", re.I), "workable"),
+                    (re.compile(r"\b(?:ADA[- ])?complian(?:t|ce)\b", re.I), "meets our checks")]
+
+
+def guard(text: str) -> str:
+    """The project never calls a place accessible or compliant; a model occasionally does, so the words are replaced."""
+    for rx, sub in WORDS_NOT_TO_USE:
+        text = rx.sub(sub, text)
+    return text
+
+
+def _call_line(name: str, a: dict) -> str:
+    keys = {"find_homes": ("city", "near", "max_rent"), "describe_home": ("building_id",), "check_apartment": ("model_id", "profile"),
+            "describe_layout": ("model_id",), "route_to": ("building_id", "category"), "match_neighborhoods": ("current_address",),
+            "plan_furniture": ("target_model_id",)}.get(name, ())
+    return name + "(" + ", ".join(f"{k}={a[k]}" for k in keys if a.get(k) is not None) + ")"
+
+
+def claude(text: str, context: dict) -> dict:
+    """One Claude agent with the seven tools. The conversation so far rides in state["history"] (text only)."""
     import anthropic
+    st = dict(context.get("state") or {})
+    history = [m for m in st.get("history", []) if m.get("role") in ("user", "assistant") and m.get("content")][-12:]
+    app = {k: context[k] for k in ("city", "profiles", "screen") if context.get(k)}
+    msgs = history + [{"role": "user", "content": f"{text}\n\n(App state: {json.dumps(app, default=str)[:3000]})"}]
     client = anthropic.Anthropic()
-    msgs = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]
-    if context:
-        msgs[-1] = {"role": "user", "content": f"{msgs[-1]['content']}\n\n(App state: {json.dumps(context)})"}
     actions: list = []
+    steps: list = PROGRESS.setdefault(context.get("request_id") or f"r{id(context)}", [])
+    evidence: list[str] = []
+    reply = None
     for _ in range(8):
         try:
-            resp = client.messages.create(model=os.getenv("NAVEASY_AGENT_MODEL", "claude-opus-5-5"), max_tokens=4000, system=SYSTEM, tools=TOOLS,
-                                          output_config={"effort": "low"}, messages=msgs)
+            resp = client.beta.messages.create(model=os.getenv("NAVEASY_AGENT_MODEL", "claude-opus-5-5"), max_tokens=4000, system=SYSTEM, tools=TOOLS,
+                                               output_config={"effort": "low"}, messages=msgs,
+                                               betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         except anthropic.RateLimitError:
-            return {"text": "The assistant is busy right now. Please try again in a moment.", "ui_actions": actions}
+            reply = "The assistant is busy right now. Please try again in a moment."
+            break
         except anthropic.APIStatusError as e:
-            return {"text": f"The assistant couldn't answer (error {e.status_code}). The filters and map still work.", "ui_actions": actions}
+            reply = f"The assistant couldn't answer (error {e.status_code}). The filters and map still work."
+            break
         except anthropic.APIConnectionError:
-            return {"text": "The assistant can't be reached right now. The filters and map still work.", "ui_actions": actions}
+            reply = "The assistant can't be reached right now. The filters and map still work."
+            break
         if resp.stop_reason == "refusal":
-            return {"text": "I can't help with that request.", "ui_actions": actions}
+            reply = "I can't help with that request."
+            break
         msgs.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason != "tool_use":
-            return {"text": "".join(b.text for b in resp.content if b.type == "text").strip(), "ui_actions": actions}
+            reply = "".join(b.text for b in resp.content if b.type == "text").strip()
+            break
         results = []
         for b in resp.content:
             if b.type == "tool_use":
                 try:
-                    out, err = _run_tool(b.name, b.input, actions), False
+                    out, err = _run_tool(b.name, b.input, actions, st), False
                 except Exception as e:  # noqa: BLE001 - report the failure to the model
                     out, err = {"error": str(getattr(e, "detail", e))[:300]}, True
-                results.append({"type": "tool_result", "tool_use_id": b.id, "content": json.dumps(out, default=str)[:12000], "is_error": err})
+                body = json.dumps(out, default=str)[:12000]
+                evidence.append(body)
+                steps.append({"kind": "tool", "who": "agent", "text": _call_line(b.name, b.input), "status": "error" if err else "ok"})
+                results.append({"type": "tool_result", "tool_use_id": b.id, "content": body, "is_error": err})
         msgs.append({"role": "user", "content": results})
-    return {"text": "I looked up several things but ran out of steps. Please ask again more specifically.", "ui_actions": actions}
+    if reply is None:
+        reply = "I looked up several things but ran out of steps. Please ask again more specifically."
+    reply = guard(reply)
+    if evidence:
+        aud = audit_numbers(reply, evidence)
+        steps.append({"kind": "check", "who": "agent", "status": "ok" if not aud["unsupported"] else "warn",
+                      "text": f"{aud['numbers']} numbers in the answer checked against the tool results"
+                              + (": all found." if not aud["unsupported"] else f"; not found in any result: {', '.join(aud['unsupported'][:6])}.")})
+    st["history"] = (history + [{"role": "user", "content": text}, {"role": "assistant", "content": reply}])[-12:]
+    return {"text": reply, "ui_actions": actions, "state": st, "steps": list(steps), "mode": "claude"}
 
 
 # ---------------------------------------------------------------- no-key fallback

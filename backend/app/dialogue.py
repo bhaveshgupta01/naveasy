@@ -717,10 +717,11 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         actions.append({"type": "open_unit", "model_id": unit_id, "profile": ps[0]})
         topic = cmd.get("topic")
         if not topic:
-            topic = ("light" if re.search(r"window|sun|light|bright|view", low) else "doors" if re.search(r"door|wide|width", low) else
+            topic = ("light" if re.search(r"window|sun|light|bright|view", low) else "fixtures" if re.search(r"counter|sink|vanity|toilet|tub|shower|island|built.?in|how high|height", low) else
+                     "doors" if re.search(r"door|wide|width", low) else
                      "problems" if re.search(r"problem|issue|barrier|wrong", low) else "size" if re.search(r"how (?:big|large)|size|square", low) else
                      "paths" if re.search(r"get to|reach|path|directions", low) else None)
-        keys = {"light": ["light"], "doors": ["doors"], "problems": ["problems"], "size": ["overview", "rooms"], "paths": ["layout", "paths"]}.get(
+        keys = {"light": ["light"], "doors": ["doors"], "fixtures": ["fixtures"], "problems": ["problems"], "size": ["overview", "rooms"], "paths": ["layout", "paths"]}.get(
             topic, ["overview", "layout"] + (["paths"] if "blind" in ps else []) + ["problems"])
         said = " ".join(sec[k] for k in keys if k in sec)
         more = [w for k, w in (("light", "the light"), ("rooms", "room sizes"), ("doors", "doorways"), ("paths", "directions inside"), ("problems", "problems")) if k in sec and k not in keys]

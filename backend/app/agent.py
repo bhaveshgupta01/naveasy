@@ -134,7 +134,11 @@ def _tool(name: str, a: dict, actions: list) -> dict:
         return {"caption": u["caption"], "scan_date": u["scan_date"], "score": u["scores"][a["profile"]], "checks": u["checks"], "stats": u["stats"],
                 "problems": [{"severity": p["severity"], "text": p["text"]} for p in u["problems"][:10]],
                 "doorways": [{"clear_in": d["est_clear_in"], "status": d["status"], "entry": d["entry"]} for d in u["doors"] if d["is_door"] and not d["minor"]],
-                "not_checked": "fixtures (toilet, tub, counters), door hardware, counter heights, grab bars, alarms"}
+                "built_ins": [{k: f.get(k) for k in ("kind", "room_type", "width_in", "depth_in", "height_in", "measured", "kind_source", "possibly_movable")}
+                              for f in u.get("fixture_items") or [] if f.get("kind") not in ("toilet tank", "shelf or ledge", "raised floor or platform")][:12],
+                "built_ins_note": "Dimensions measured from the 3D mesh, good to about an inch; what each item is was inferred from the room, size and height."
+                                  if u.get("fixture_items") else "No 3D mesh for this scan, so built-ins (counters, toilet, tub) were not measured.",
+                "not_checked": "grab bars, door hardware, switch heights, visual or audible alarms"}
     if name == "describe_layout":
         from . import narrate
         u = api.unit_heatmap(a["model_id"], a["profile"])

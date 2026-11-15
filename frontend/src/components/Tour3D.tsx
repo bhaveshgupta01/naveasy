@@ -48,7 +48,7 @@ interface Props {
   planned?: boolean // the unit carries a furnishing plan, placed in the scan
   emptyScan?: boolean
   onEmptyScan?: (on: boolean) => void // offered when Matterport has a furniture-removed view of this scan
-  goTo?: { x: number; y: number; look?: [number, number] | null; n: number } | null // the agent walking the tour (plan meters)
+  goTo?: { x: number; y: number; look?: [number, number] | null; z?: number | null; n: number } | null // the agent walking the tour (plan meters; z: floor height)
 }
 
 export default function Tour3D({ modelId, tourId = modelId, unit, measured = true, profile, onProfile, onFloor, planned, emptyScan, onEmptyScan, goTo }: Props) {
@@ -238,11 +238,11 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
   }, [connected, unit])
 
   // Stand at the scan position nearest a spot (plan meters) and face a point: how the tour walks itself
-  const moveTo = (x: number, y: number, look?: [number, number] | null): boolean => {
+  const moveTo = (x: number, y: number, look?: [number, number] | null, floorZ?: number | null): boolean => {
     const mp = sdk.current
     const u = live.current.unit
     if (!mp || !u || !sweeps.current.length) return false
-    const z = u.floor_z ?? 0
+    const z = floorZ ?? u.floor_z ?? 0 // a stop on another floor (the venue's stairs) carries that floor's height
     const t = toSdk(x, y, z + 1.5)
     const near = sweeps.current
       .map((s) => ({ s, d: Math.hypot(s.position.x - t.x, s.position.z - t.z) + Math.abs(s.position.y - t.y) * 3 }))
@@ -264,13 +264,13 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
   const pendingGo = useRef<typeof goTo>(null)
   useEffect(() => {
     if (!goTo) return
-    if (!moveTo(goTo.x, goTo.y, goTo.look)) pendingGo.current = goTo
+    if (!moveTo(goTo.x, goTo.y, goTo.look, goTo.z)) pendingGo.current = goTo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goTo?.n])
   useEffect(() => {
     if (!connected || !pendingGo.current) return
     const g = pendingGo.current
-    const t = window.setTimeout(() => moveTo(g.x, g.y, g.look) && (pendingGo.current = null), 1200) // let the sweeps load
+    const t = window.setTimeout(() => moveTo(g.x, g.y, g.look, g.z) && (pendingGo.current = null), 1200) // let the sweeps load
     return () => window.clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected])
@@ -309,11 +309,11 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
     try {
       const r = await fetch(`${API}/units/${modelId}/walk?profile=${profile}`)
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? 'no walk')
-      const w = (await r.json()) as { steps: { text: string; x: number | null; y: number | null; look: [number, number] | null }[] }
+      const w = (await r.json()) as { steps: { text: string; x: number | null; y: number | null; look: [number, number] | null; z?: number | null }[] }
       if (mode !== 'mode.inside') await moveMode('INSIDE')
       for (const s of w.steps) {
         if (token !== walkToken.current) return
-        if (s.x != null && s.y != null) moveTo(s.x, s.y, s.look)
+        if (s.x != null && s.y != null) moveTo(s.x, s.y, s.look, s.z)
         setWalkLine(s.text)
         await say(s.text, token)
         await new Promise((d) => window.setTimeout(d, 350))

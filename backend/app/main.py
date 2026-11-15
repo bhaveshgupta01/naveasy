@@ -402,6 +402,13 @@ def unit_walk(model_id: str, profile: Profile = "wheelchair"):
     """A walk through the entry floor that the 3D tour can follow: stops (where to stand, where to look) with a spoken
     sentence each, built from the measured geometry (backend/app/narrate.walk_tour)."""
     from backend.app import narrate
+    if _is_venue(model_id):    # the building we are standing in: walk from the entrance to the classroom, up the stairs
+        from pipeline import venue
+        r = venue.inside_route("entrance", "classroom", profile, model_id=model_id)
+        zs = {leg["floor"]: unit_heatmap(model_id, profile, floor=leg["floor"])["floor_z"] for leg in r.get("legs") or []}
+        w = narrate.venue_walk(r, zs)
+        if w:
+            return w
     u = unit_heatmap(model_id, profile)
     w = narrate.walk_tour(u, profile) if u.get("has_graph") else None
     if not w:

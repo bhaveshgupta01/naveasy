@@ -73,6 +73,7 @@ def test_home_list_asks_for_a_number():
 def offline(monkeypatch):
     """The conversation with every data lookup replaced, and no language model, so it runs anywhere."""
     monkeypatch.setattr(brain, "parse", lambda *a, **k: None)
+    monkeypatch.setattr(dialogue, "find_named", lambda *a, **k: None)
     homes = [{"id": f"b{i}", "name": n, "score": s, "rent": r, "inside": True, "lat": 29.74, "lon": -95.38, "n": 3}
              for i, (n, s, r) in enumerate([("The Rice", 84, 1600), ("Calais Midtown", 82, 1400), ("Elan Med Center", 75, 1750)])]
     seen = {}
@@ -190,3 +191,9 @@ def test_the_3d_tour_walks_along_with_the_voice(offline, monkeypatch):
     moves = [a for a in r["ui_actions"] if a["type"] == "tour_goto"]
     assert [(m["x"], m["y"]) for m in moves] == [(0.9, 3.0), (6.5, 4.2)]           # no move for the closing line
     assert all(m["cue"].lower() in r["text"].lower() for m in moves)               # each move runs as its sentence is spoken
+
+
+def test_a_venue_question_is_answered_even_when_it_names_a_need(venue_stub):
+    out, st = _talk(["__start__", "How do I get from the entrance to the classroom in a wheelchair?"])
+    assert ("route", "entrance", "classroom") in venue_stub and "budget" not in out[1]["text"].lower()
+    assert st["profiles"] == ["wheelchair"] and st["guide"] == "needs"

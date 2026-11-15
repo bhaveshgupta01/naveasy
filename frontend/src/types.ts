@@ -286,7 +286,7 @@ export type UiAction = (
   | { type: 'show_relocation'; request: Record<string, unknown> }
   | { type: 'open_drone'; id: string }
   | { type: 'draw_route'; route: Route; building_id?: string } // a route from a named origin (the venue's station or parking walk)
-  | { type: 'tour_goto'; model_id?: string; x: number; y: number; look?: [number, number] | null } // move the 3D tour's camera to a spot
+  | { type: 'tour_goto'; model_id?: string; x: number; y: number; look?: [number, number] | null; z?: number | null } // move the 3D tour's camera to a spot (z: that floor's height)
 ) & { cue?: string } // voice: run this action when the sentence containing `cue` starts to be spoken
 
 // each need's identity color (no red or green: see colors.ts)

@@ -837,3 +837,52 @@ def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | Non
 def steps_word(m: float) -> str:
     s = steps(m)
     return s[0].upper() + s[1:]
+
+
+def venue_walk(route: dict, floor_z: dict) -> dict | None:
+    """The venue's entrance-to-room route as a walk the 3D tour can follow (one stop per spoken phrase, across floors).
+    `route` is pipeline.venue.inside_route(); `floor_z` maps the route's floor index to that floor's height."""
+    legs = [leg for leg in route.get("legs") or [] if len(leg.get("points") or []) >= 2]
+    if not legs:
+        return None
+    out = []
+    first = legs[0]["points"]
+    look0 = first[1]
+    out.append({"text": f"We start at the entrance on {legs[0]['floor_label'].lower()}, facing in.", "x": first[0][0], "y": first[0][1],
+                "look": look0, "z": floor_z.get(legs[0]["floor"]), "floor": legs[0]["floor"]})
+    for leg in legs:
+        pts, z = leg["points"], floor_z.get(leg["floor"])
+        phrases = [p.strip() for p in (leg.get("words") or "").split(", then ") if p.strip()] or [f"go about {leg['meters']:.0f} meters"]
+        # each phrase's stop: as far along the path as the phrases so far say ("go about 5 meters"), scaled to the path's length
+        seg = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
+        total = sum(seg) or 1.0
+        said = [float(m.group(1)) if (m := __import__("re").search(r"about (\d+(?:\.\d+)?) meter", ph)) else None for ph in phrases]
+        known = sum(x for x in said if x) or 0
+        each = [(x if x else (total - known) / max(1, said.count(None))) for x in said]
+        scale = total / (sum(each) or 1.0)
+
+        def along(dist):
+            for (a, b), L in zip(zip(pts, pts[1:]), seg):
+                if dist <= L or L == seg[-1] and (a, b) == (pts[-2], pts[-1]):
+                    f = min(1.0, dist / L) if L else 1.0
+                    return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f), (b[0] - a[0], b[1] - a[1])
+                dist -= L
+            return tuple(pts[-1]), (pts[-1][0] - pts[-2][0], pts[-1][1] - pts[-2][1])
+        run = 0.0
+        for i, ph in enumerate(phrases):
+            run += each[i] * scale
+            (tx, ty), (vx, vy) = along(run)
+            px, py = tx - vx, ty - vy
+            d = math.hypot(vx, vy) or 1.0
+            lead = (f"On {leg['floor_label'].lower()}" + (f", from {leg['from']}" if leg.get("from") else "") + ": ") if i == 0 and leg is not legs[0] else ""
+            text = lead + ph[0].upper() + ph[1:] if not lead else lead + ph
+            if i == len(phrases) - 1 and leg.get("to"):
+                text += f", to {leg['to']}"
+            out.append({"text": speakable(text + "."), "x": round(tx, 2), "y": round(ty, 2), "look": [round(tx + (tx - px) / d * 2, 2), round(ty + (ty - py) / d * 2, 2)],
+                        "z": z, "floor": leg["floor"]})
+        if leg.get("narrowest_in"):
+            ev = (leg.get("narrowest_evidence") or {}).get("says", "")
+            out[-1]["text"] += f" The narrowest point on the way is about {leg['narrowest_in']} inches" + (f", {ev}." if ev else ".")
+    end = " ".join(route.get("needs_site_visit") or []) or "That's the way."
+    out.append({"text": speakable(end), "x": None, "y": None, "look": None, "z": None, "floor": None})
+    return {"title": f"From the {route.get('from', 'entrance')} to the {route.get('to', 'room')}", "steps": out}

@@ -38,7 +38,7 @@ interface Props {
   initialTab?: 'heat' | 'score' | 'plan' | 'tour' | 'floor'
   initialPlan?: FurnishPlan
   autoPlanFrom?: string
-  tourGoto?: { x: number; y: number; look?: [number, number] | null; n: number } | null // the agent walking the 3D tour
+  tourGoto?: { x: number; y: number; look?: [number, number] | null; z?: number | null; n: number } | null // the agent walking the 3D tour
   meta: Meta | null
   onClose: () => void
 }

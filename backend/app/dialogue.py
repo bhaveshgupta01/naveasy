@@ -385,8 +385,9 @@ def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
     stage = st["guide"]
     if stage in ("needs", "budget", "area"):
         got = _fill(t, low, cmd, st)
-        if not got and (cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") or re.search(VENUE_WORDS, low)
-                        or find_named(t, st.get("city"))) and not re.search(YES + "|" + NO, low):
+        if re.search(VENUE_WORDS, low) or find_named(t, st.get("city")):
+            return None          # about the building we're in, or a home by name: answer it (a need said along the way is kept)
+        if not got and cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") and not re.search(YES + "|" + NO, low):
             return None                                              # a question of its own: answer it, keep the place in the guide
         ack = ("Okay: " + ", ".join(got) + ". ") if got else ""
         if not st.get("needs_known"):
@@ -498,6 +499,11 @@ def _closing(st: dict) -> str:
 
 # ---------------------------------------------------------------- the venue: the building we are standing in
 
+def api_unit(model_id: str, profile: str, floor: int | None = None) -> dict:
+    from . import main as api
+    return api.unit_heatmap(model_id, profile, floor=floor)
+
+
 VENUE_WORDS = r"\b(?:this building|the building we'?re in|building we are in|we'?re (?:in|standing in)|rabinowitz|the venue|hackprinceton|hackathon|this room|in here|where we are|princeton|classroom|lecture hall)\b"
 
 
@@ -530,6 +536,15 @@ def _venue(t: str, low: str, st: dict, actions: list) -> str | None:
     if re.search(r"get to|route|way to|how (?:do|can) i|go to|reach|classroom|from the entrance|find the", low):
         to = next((p for p in ("classroom", "landing", "stairs") if p in low), "classroom")
         r = V.inside_route("entrance", to, ps[0])
+        zs = {leg["floor"]: api_unit(V.PRIMARY, ps[0], leg["floor"])["floor_z"] for leg in r.get("legs") or []}
+        walk = narrate.venue_walk(r, zs)
+        if walk:      # the 3D tour walks the route as it is spoken, up the stairs to the room
+            actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": ps[0], "tab": "tour"})
+            for stop in walk["steps"]:
+                if stop["x"] is not None:
+                    actions.append({"type": "tour_goto", "model_id": V.PRIMARY, "x": stop["x"], "y": stop["y"], "look": stop["look"], "z": stop["z"],
+                                    "cue": " ".join(stop["text"].split()[:7])})
+            return " ".join(stop["text"] for stop in walk["steps"])
         actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": ps[0]})
         return r.get("spoken") or f"I couldn't find a way from the entrance to the {to} in the scan."
     tour = V.venue_tour(ps[0])

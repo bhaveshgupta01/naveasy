@@ -61,7 +61,7 @@ export default function App() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     const needs = (q.get('needs') ?? '').split(',').filter((p): p is Profile => PROFILES.some((x) => x.id === p))
-    if (q.get('city') === 'la') switchCity('la')
+    if (q.get('city') === 'la' || q.get('city') === 'princeton') switchCity(q.get('city') as City)
     if (needs.length) setProfiles(needs)
     if (q.get('home')) setSelectedId(q.get('home'))
     if (q.get('unit')) setOpenUnit({ modelId: q.get('unit')!, tab: (q.get('tab') as OpenUnit['tab']) ?? undefined })
@@ -291,6 +291,9 @@ export default function App() {
           </button>
           <button className={city === 'la' ? 'on' : ''} aria-pressed={city === 'la'} onClick={() => switchCity('la')}>
             Los Angeles
+          </button>
+          <button className={city === 'princeton' ? 'on' : ''} aria-pressed={city === 'princeton'} onClick={() => switchCity('princeton')} title="The HackPrinceton venue">
+            Princeton
           </button>
         </div>
 

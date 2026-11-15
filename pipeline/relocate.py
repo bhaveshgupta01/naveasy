@@ -65,7 +65,7 @@ def _by_cell(city: str) -> dict:
 def fingerprint(lat: float, lon: float, profiles: list[str], live: bool = True) -> dict:
     """Minutes to the nearest essentials around any point, per profile (live Valhalla, else estimated)."""
     city = city_of(lat, lon)
-    if not city:
+    if city not in ("houston", "la"):      # Princeton is in city_of for the venue, but has no neighborhood data
         raise ValueError("The address is outside Houston and Los Angeles.")
     pois = _pois(city)
     near = locality.nearest_km(pois, city, lat, lon)

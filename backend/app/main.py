@@ -59,7 +59,19 @@ def _mock(name: str):
 def buildings() -> dict:
     path = DATA / "buildings_scored.json"
     rows = json.loads((path if path.exists() else DATA / "buildings.json").read_text())
-    return {b["id"]: b for b in rows}
+    out = {b["id"]: b for b in rows}
+    try:   # the building we are standing in (pipeline/venue.py); the app still runs without its scans
+        from pipeline import venue
+        v = venue.building_record()
+        out[v["id"]] = v
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _is_venue(model_id: str) -> bool:
+    from pipeline import venue
+    return model_id in venue.MODELS
 
 
 @lru_cache(maxsize=2)
@@ -83,6 +95,12 @@ def _plan(model_id: str):
     from pipeline.unit import load_plan
     if not (DATA / "matterport" / f"{model_id}.json").exists() and not os.getenv("MATTERPORT_API_KEY"):
         raise HTTPException(404, "no geometry cached for this scan")
+    if _is_venue(model_id):      # a public building: its own loader (labels, artefact doors, mesh-checked steps)
+        from pipeline import venue
+        try:
+            return venue.venue_plan(model_id)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"couldn't load the scan: {e}") from e
     try:
         plan = load_plan(model_id)
     except Exception as e:  # noqa: BLE001
@@ -116,6 +134,9 @@ def _refresh_unit(model_id: str, res: dict) -> None:
 def _analysis(model_id: str, furnished: bool, chair_cm: int):
     from pipeline.furnish import load_furniture
     from pipeline.unit import analyze
+    if _is_venue(model_id):
+        from pipeline import venue
+        return venue.analyze_public(_plan(model_id)), []
     furniture = load_furniture(model_id) if furnished else []
     return analyze(_plan(model_id), furniture, chair_width=chair_cm / 100 if chair_cm else None), furniture
 
@@ -286,7 +307,7 @@ def building(building_id: str, profiles: str = "wheelchair", combine: Literal["m
         cell = None
     return {**{k: v for k, v in b.items() if k != "units"}, "combined": _combine(b["scores"], ps, combine), "units": units, "nearest": nearest,
             "locality_detail": {"scores": {p: cell["scores"][p] for p in ps}, "streets": cell.get("streets"), "live": cell["live"]} if cell else None,
-            "checklist": _checklist(b, problems)}
+            "checklist": b.get("checklist") or _checklist(b, problems)}
 
 
 # ---------------------------------------------------------------- apartments
@@ -315,6 +336,15 @@ def unit_heatmap(model_id: str, profile: Profile = "wheelchair", furnished: bool
     out["defurnished_id"] = units_index().get(model_id, {}).get("defurnished")
     out["has_furniture_scan"] = (DATA / "furniture" / f"{model_id}.json").exists()
     out["tour_url"] = f"https://my.matterport.com/show/?m={model_id}&play=1&qs=1"
+    if res.get("public"):     # the venue: what the score measures, the entrances, stairs and raised floor, the evidence
+        from pipeline import venue
+        out["public"] = True
+        out["score_note"] = res["score_note"]
+        out["defurnished_id"] = out["defurnished_id"] or ((json.loads((DATA / "matterport" / f"{model_id}.json").read_text()).get("defurnished") or {}).get("id"))
+        out["venue"] = {"entrances": [{"name": e["name"], "floor": e["floor"], "x": e["door"]["x"], "y": e["door"]["y"], "clear_in": e["door"]["est_clear_in"], "assumed": True}
+                                      for e in plan.venue["entrances"]],
+                        "raised": plan.venue["raised"], "stairs": venue.stairs(model_id), "floor_heights": plan.venue["levels"],
+                        "doors": venue.door_widths(model_id=model_id), "ground_truth": venue.ground_truth().get("checked_on")}
     out["all_problems"] = res["problems"]
     return out
 
@@ -781,3 +811,45 @@ def speech_say(req: SayRequest):
     if not req.text.strip():
         raise HTTPException(422, "nothing to say")
     return Response(speech.say(req.text[:3000], req.speed), media_type="audio/wav")
+
+
+# ---------------------------------------------------------------- the venue: the building we are standing in
+
+def _venue():
+    from pipeline import venue
+    try:
+        venue.venue_plan(venue.PRIMARY)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(404, f"the venue scan isn't available: {e}") from e
+    return venue
+
+
+@app.get("/venue")
+def venue_summary():
+    """HackPrinceton's venue (pipeline/venue.py): scans, entrances, doors, stairs, the route to the classroom."""
+    return _venue().venue_summary()
+
+
+@app.get("/venue/route")
+def venue_route(from_place: str = "entrance", to_place: str = "classroom", profile: Profile = "wheelchair"):
+    """Inside the venue, from one named place to another (entrance, classroom, landing, stairs)."""
+    return _venue().inside_route(from_place, to_place, profile)
+
+
+@app.get("/venue/doors")
+def venue_doors(near: str | None = None):
+    return _venue().door_widths(near)
+
+
+@app.get("/venue/stairs")
+def venue_stairs():
+    return _venue().stairs()
+
+
+@app.get("/venue/outside")
+def venue_outside(origin: str = "princeton station", profile: Profile = "wheelchair"):
+    """From Princeton station (the Dinky) or a parking area to the venue, outside."""
+    out = _venue().outside_route(origin, profile)
+    if out.get("error"):
+        raise HTTPException(404, out["error"])
+    return out

@@ -12,7 +12,11 @@ maplibregl.setWorkerUrl(workerUrl)
 
 // Free vector tiles, no key needed.
 const STYLE = 'https://tiles.openfreemap.org/styles/positron'
-export const CITY_VIEW = { houston: { center: [-95.3795, 29.7437] as [number, number], zoom: 12.6 }, la: { center: [-118.27, 34.05] as [number, number], zoom: 11.5 } }
+export const CITY_VIEW = {
+  houston: { center: [-95.3795, 29.7437] as [number, number], zoom: 12.6 },
+  la: { center: [-118.27, 34.05] as [number, number], zoom: 11.5 },
+  princeton: { center: [-74.655448, 40.3491177] as [number, number], zoom: 17 }, // the venue: Julis Romo Rabinowitz Building
+}
 const ROUTE_COLOR = { green: '#1f8a4c', amber: '#d98a00', red: '#c62828', grey: '#8a8f98' }
 
 export interface MapTarget {

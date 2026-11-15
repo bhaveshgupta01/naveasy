@@ -38,6 +38,8 @@ def city_of(lat: float, lon: float) -> str | None:
         return "houston"
     if 33.2 < lat < 34.9 and -119.4 < lon < -117.0:
         return "la"
+    if 40.3157 <= lat <= 40.3714 and -74.6943 <= lon <= -74.5981:   # Princeton: the venue only (Vexcel's campus box)
+        return "princeton"
     return None
 
 

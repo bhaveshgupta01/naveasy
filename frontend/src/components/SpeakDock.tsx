@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API } from '../api'
+import { GeminiVoice } from '../geminiVoice'
 import type { UiAction } from '../types'
 
 // A small speak button docked beside the chat button. The assistant drives the app from outside, the way a broker
@@ -30,7 +31,7 @@ interface Props {
 const BrowserSR: any = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
 type Phase = 'off' | 'idle' | 'listening' | 'thinking' | 'speaking'
 
-export function sentences(text: string): string[] {
+function sentences(text: string): string[] {
   const parts = text.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [text]
   // join very short pieces ("1.", "St.") to their neighbor so speech doesn't stutter
   const out: string[] = []
@@ -71,6 +72,16 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
   const [said, setSaid] = useState('')
   const [note, setNote] = useState('')
   const [autoListen, setAutoListen] = useState(true)
+  // optional engine: Gemini Live as ears and mouth (our own conversation still answers). Local speech is the default.
+  const [useGemini, setUseGemini] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('voice') === 'gemini' || localStorage.getItem('naveasy.voice') === 'gemini'
+    } catch {
+      return false
+    }
+  })
+  const [geminiOk, setGeminiOk] = useState(false)
+  const gemini = useRef<GeminiVoice | null>(null)
 
   const phaseRef = useRef<Phase>('off')
   const setP = (p: Phase) => {
@@ -280,17 +291,42 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
   const start = useCallback(async () => {
     if (phaseRef.current !== 'off') return
     setP('idle')
+    let geminiReady = geminiOk
     if (!engine.current) {
       try {
         const h = await (await fetch(`${API}/health`)).json()
         engine.current = { listen: !!h.speech?.listen, speak: !!h.speech?.speak }
+        geminiReady = !!h.voice
+        setGeminiOk(geminiReady)
       } catch {
         engine.current = { listen: false, speak: false }
       }
     }
+    if (useGemini && geminiReady) {
+      const g = new GeminiVoice({
+        ask,
+        runActions,
+        onHeard: setHeard,
+        onSaid: setSaid,
+        onPhase: (p) => phaseRef.current !== 'off' && setP(p),
+        onError: (m) => setNote(m),
+      })
+      gemini.current = g
+      try {
+        setSaid('Connecting to the Gemini voice…')
+        await g.start()
+        return
+      } catch (e) {
+        g.stop()
+        gemini.current = null
+        setNote(`Gemini voice unavailable (${String((e as Error).message ?? e).slice(0, 80)}); using the local voice.`)
+      }
+    }
     void send('__start__')
-  }, [send])
+  }, [send, ask, runActions, useGemini, geminiOk])
   const end = useCallback(() => {
+    gemini.current?.stop()
+    gemini.current = null
     speakToken.current++
     audio.current?.pause()
     window.speechSynthesis?.cancel()
@@ -310,11 +346,12 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
       if (e.key.toLowerCase() === 'v' && !e.repeat) {
         if (phaseRef.current === 'off') void start()
         else end()
-      } else if (e.code === 'Space' && !e.repeat && phaseRef.current !== 'off') {
+      } else if (e.code === 'Space' && !e.repeat && phaseRef.current !== 'off' && !gemini.current) {
         e.preventDefault()
         void listenRef.current()
       } else if (e.key === 'Escape' && phaseRef.current !== 'off') {
-        if (phaseRef.current === 'speaking') stopSpeaking()
+        if (gemini.current) end()
+        else if (phaseRef.current === 'speaking') stopSpeaking()
         else if (phaseRef.current === 'listening') stopListening()
       }
     }
@@ -347,6 +384,7 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
   }[phase]
   const press = () => {
     if (phase === 'off') void start()
+    else if (gemini.current) end() // Gemini listens all the time and can be interrupted by voice; the button ends it
     else if (phase === 'listening') stopListening()
     else void listen()
   }
@@ -370,6 +408,25 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
             <label>
               <input type="checkbox" checked={autoListen} onChange={(e) => setAutoListen(e.target.checked)} /> Listen after questions
             </label>
+            {geminiOk && (
+              <label title="Gemini Live hears and speaks; NavEasy's own data still answers. Off: local Whisper and Piper.">
+                <input
+                  type="checkbox"
+                  checked={useGemini}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setUseGemini(on)
+                    try {
+                      localStorage.setItem('naveasy.voice', on ? 'gemini' : 'local')
+                    } catch {
+                      /* private window */
+                    }
+                    end()
+                  }}
+                />{' '}
+                Gemini voice
+              </label>
+            )}
             <button type="button" onClick={end}>
               End
             </button>

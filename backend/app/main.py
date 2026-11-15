@@ -557,7 +557,7 @@ def voice_token():
     import datetime as dt
     import requests
     now = dt.datetime.now(dt.timezone.utc)
-    r = requests.post("https://generativelanguage.googleapis.com/v1beta/auth_tokens", params={"key": key}, timeout=20, json={
+    r = requests.post("https://generativelanguage.googleapis.com/v1alpha/auth_tokens", params={"key": key}, timeout=20, json={
         "uses": 1, "expireTime": (now + dt.timedelta(minutes=30)).isoformat(), "newSessionExpireTime": (now + dt.timedelta(minutes=1)).isoformat()})
     if r.status_code != 200:
         raise HTTPException(502, f"token service said {r.status_code}: {r.text[:200]}")

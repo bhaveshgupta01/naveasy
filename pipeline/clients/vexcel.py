@@ -16,6 +16,33 @@ from . import UA, env, with_backoff
 
 API = "https://api.vexcelgroup.com/v2"
 LAYERS = "urban,urban-r,wide-area,urban-g"
+# Our key only answers inside these boxes (west, south, east, north), per the organizers' update of Nov 14.
+REGIONS = {
+    "princeton": (-74.6943, 40.3157, -74.5981, 40.3714),
+    "la": (-119.0134, 33.0945, -116.8949, 34.3154),
+    "houston": (-96.2185, 29.0173, -94.5758, 30.3804),
+    "northern_california": (-124.7437, 38.0655, -118.9869, 41.9596),
+    "gulf_coast": (-88.33, 29.50, -84.80, 30.80),
+}
+
+
+class OutsideRegion(ValueError):
+    """The point is outside every region our Vexcel key may query; the call would be refused."""
+
+
+def region(lat: float, lon: float) -> str | None:
+    """Which allowed Vexcel region a point is in, or None. Every request below checks this first."""
+    for name, (w, s, e, n) in REGIONS.items():
+        if w <= lon <= e and s <= lat <= n:
+            return name
+    return None
+
+
+def _check(wkt: str | None) -> None:
+    import re
+    m = re.search(r"(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)", wkt or "")
+    if m and not region(float(m.group(2)), float(m.group(1))):
+        raise OutsideRegion(f"({m.group(2)}, {m.group(1)}) is outside the regions our Vexcel key covers")
 
 
 def _headers() -> dict:
@@ -34,11 +61,13 @@ def square(lat: float, lon: float, half_m: float) -> str:
 
 
 def _get(path: str, **params):
+    _check(params.get("wkt"))
     r = with_backoff(lambda: requests.get(f"{API}/{path}", params=params, headers=_headers(), timeout=120))
     return r
 
 
 def _post(path: str, body: dict):
+    _check(body.get("wkt"))
     return with_backoff(lambda: requests.post(f"{API}/{path}", json=body, headers=_headers(), timeout=300))
 
 
@@ -105,3 +134,10 @@ def embedding_search(area_wkt: str, text: str | None = None, location_wkt: str |
     r = _post("embedding/extract", body)
     r.raise_for_status()
     return r.json()["features"]
+
+
+def dsm(lat: float, lon: float, buffer_m: float = 80) -> bytes:
+    """Surface heights (roofs, trees, ground) as a GeoTIFF, about 7.5 cm per pixel, EPSG:3857, float32 meters."""
+    r = _get("dsm/extract", wkt=point(lat, lon), srid=4326, crop="bounding_box", **{"buffer-meter": buffer_m})
+    r.raise_for_status()
+    return r.content

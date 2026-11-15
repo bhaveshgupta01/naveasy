@@ -1,0 +1,19 @@
+{
+  "about": "Our own tape-measure checks at the HackPrinceton venue (Julis Romo Rabinowitz Building). Fill tape_in (inches) and set checked_on (YYYY-MM-DD) after the walk; pipeline/venue.py reads this file. See docs/GROUND_TRUTH.md.",
+  "checked_on": null,
+  "measured_by": null,
+  "items": {
+    "door_6cz05t9cxmem7zmuudgi59hmc_0": {"what": "Entrance (assumed), south-west side of floor 2, left leaf pair", "tape_in": null, "notes": ""},
+    "door_fd1trm6r30c9df32fi3wd3gcd_0": {"what": "Second door of the same entrance, south-west side of floor 2", "tape_in": null, "notes": ""},
+    "door_07r29adiz63ewf88w743g94xc_0": {"what": "Door on the west side of floor 2", "tape_in": null, "notes": ""},
+    "door_ez8z2gwmulw_0": {"what": "Classroom to landing door, north-east side of floor 3", "tape_in": null, "notes": ""},
+    "door_twboqwt4y6f_0": {"what": "Landing to classroom door, east side of floor 3", "tape_in": null, "notes": ""},
+    "door_ttu12npbd8epayqgd3ubk7hwc_0": {"what": "Doors on the north-east side of floor 3 (the two scans disagree: 27.6 vs 34.5 in)", "tape_in": null, "step_cm": null, "notes": ""},
+    "door_ad9d7cu6wrn5tce0szc1htbmb_0": {"what": "Low opening on the south side of floor 3 (scan says 1.81 m tall)", "tape_in": null, "notes": ""},
+    "door_hfr74i7dnm8hhcne1xdzwsm7c_0": {"what": "49 cm gap in the wall, north-east side of floor 3", "tape_in": null, "notes": "what is it?"},
+    "corridor_entrance_classroom_1": {"what": "Narrowest corridor, entrance to the stairs, floor 2", "tape_in": null, "notes": ""},
+    "corridor_entrance_classroom_2": {"what": "Narrowest corridor, top of the stairs to the classroom, floor 3", "tape_in": null, "notes": ""},
+    "raised_2": {"what": "Raised part of floor 3: height difference in inches", "tape_in": null, "step_or_ramp": null, "notes": ""},
+    "elevator": {"what": "Step-free way between floor 2 and floor 3", "exists": null, "tape_in": null, "notes": "where, and its door width"}
+  }
+}

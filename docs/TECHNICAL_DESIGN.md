@@ -610,6 +610,32 @@ The biggest risk is scope: this document describes three features, four profiles
 - Which attribute names does Valhalla's `trace_attributes` return for sidewalks, crossings and grade on the public server?
 - How many people are on the team, and who owns which workstream?
 
+## 17a. What the build changed (Nov 14)
+
+Findings from building against the live services. Where these differ from the sections above, these are current.
+
+| Topic | Design said | What we found and did |
+| --- | --- | --- |
+| Door widths | Possibly rough openings; subtract 5 cm | Across 29,000 scanned doorways the widths cluster at 24, 28, 30, 32 and 36 in, the nominal door sizes, so they are frame openings. The 5 cm deduction stays |
+| Thresholds | Use the opening's `lowerElevation` | That value is an absolute height. We subtract the room's floor height (`dimensionEstimates.lowerElevation`) and flag only from 3 cm, because readings are noisy by about 2 cm |
+| Tight doors | Pass or fail at 32 in | A door within 5.5 cm of the limit lets the chair through but everything behind it shows as caution |
+| Narrow entry | Not specified | If the entry door fails, nothing inside counts as reachable for the score; the map still shows what a wider door would open up |
+| Fixed fixtures | Templates, later detection | Neither is trustworthy yet (color-based detection was too noisy), so bathroom and kitchen checks are stated as "before fixtures" |
+| Furniture footprints | Lowest pixels cast to the floor | Space carving: a floor cell in view of a scan position that never looks unchanged is under furniture. Edges are pulled in 10 cm so footprint error can't close a real path |
+| Furnishing baseline | Before and after | 15 random legal layouts of the same pieces; we report their range, not one chosen bad layout |
+| Unmapped sidewalks | Red | Grey (unknown) unless OpenStreetMap tags the street as having none |
+| Route slope | Vexcel elevation every 20 m | Vexcel surface heights at 2 m, with roofs and tree tops pressed down to nearby ground, slope over 30 m windows; the two route ends are ignored because they sit inside building footprints |
+| Building score | Four components | Half building evidence, half the best measured unit inside, when one exists |
+| Map | 2D heat map | Vexcel aerial tiles as the base map, Vexcel surface heights as 3D terrain past zoom 15 |
+| Outside of the home | Vexcel obliques | Obliques, a 3D block from surface heights, and Matterport's aerial Gaussian splat for the 230 homes that have one |
+| Transit stops | OpenStreetMap, GTFS planned | Houston METRO (8,803 stops) and LA Metro (12,354) GTFS feeds are in |
+| Agent | LangChain deepagents | Three paths behind one entry point: local (voice, the agent-led conversation), a Claude tool loop (`claude-opus-5-5`, effort low) for typed questions, and deepagents 0.7 (planner with `TodoListMiddleware`, which 0.7 no longer adds itself, plus building, inside, outside and checker subagents) for multi-step searches. Numbers in every Claude answer are matched against the tool results |
+| Storage | DuckDB | JSON files in `data/`, loaded in memory |
+| Voice | Gemini Live first | Local Whisper and Piper by default, with a speak button the agent drives; Gemini Live optional as ears and mouth only (it reads our tool's answer word for word) |
+| Fixtures | Templates | Each built-in measured from the mesh (width, depth, height); counter height checked against 34 in, reported but not weighted |
+
+Coverage in the data: 13,771 scans, of which 6,551 carry a wall graph; 6,742 have a furniture-removed view; 232 have an aerial splat.
+
 ## 18. Sources
 
 Every figure in this document comes from our own API calls on Nov 13 and 14, 2026, from the CoStar kit, or from these pages:

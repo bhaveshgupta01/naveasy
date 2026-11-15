@@ -683,6 +683,11 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
         bf, bi = beds[0]
         pf = per_floor[bf.index]
         src = _room_cell(bf, bi, pf["walk"])
+        # with a bed in that bedroom, the night walk starts beside the bed, not in the middle of the room
+        bed_item = next((it for it in furniture if "bed" in str(it.get("label", "")) and it.get("floor", 0) == bf.index
+                         and bf.room_idx[bf.rc(it["rect"][0] + it["rect"][2] / 2, it["rect"][1] + it["rect"][3] / 2)] == bi), None)
+        if bed_item:
+            src = _nearest_true(pf["walk"], bf.rc(bed_item["rect"][0] + bed_item["rect"][2] / 2, bed_item["rect"][1] + bed_item["rect"][3] / 2), 2.0) or src
         if src:
             dbed, pbed = _graph_dist(pf["walk"], src)
             bed_dist_floor = (bf.index, dbed)
@@ -750,7 +755,10 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
             if it.get("floor", 0) != f0.index:
                 continue
             poly = Polygon(item_polygon(it))
+            at_bed = "bed" in str(it.get("label", "")) or it.get("label") == "nightstand"
             for p in main_paths:
+                if at_bed and p["to"] == "bed":
+                    continue                 # the way to the bed ends at the bed: it isn't clutter on its own route
                 if len(p["points"]) > 1 and LineString(p["points"]).distance(poly) < 0.3:
                     clutter_hits.append(it)
                     break

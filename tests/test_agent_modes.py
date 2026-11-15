@@ -19,7 +19,10 @@ def test_multi_step_searches_are_planned_and_questions_go_to_one_agent(monkeypat
     monkeypatch.setattr(deep, "enabled", lambda: False)                  # NAVEASY_DEEP=off
     assert agent.route("I use a power wheelchair. Find us a place near the Medical Center under $2,000.", {}) == "claude"
     monkeypatch.delenv("ANTHROPIC_API_KEY")
-    assert agent.route("How wide is the bathroom door?", {}) == "local"
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    assert agent.route("How wide is the bathroom door?", {}) == "gemini"         # no Claude: Gemini answers
+    monkeypatch.delenv("GEMINI_API_KEY")
+    assert agent.route("How wide is the bathroom door?", {}) == "local"          # neither: this machine answers
 
 
 def test_numbers_in_an_answer_must_come_from_a_tool():

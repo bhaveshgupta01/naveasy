@@ -251,11 +251,12 @@ def route(text: str, context: dict) -> str:
         return "local"      # voice, the guided conversation, and signals from the app (__start__, __ui_needs__) stay local
     if os.getenv("NAVEASY_DEEP", "on").lower() not in ("off", "0", "false", "no") and deep.cached(text, context) and deep.wants_plan(text, st):
         return "deep"       # a cached planned run replays without calling any model, so it works even with Claude down
-    if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("NAVEASY_AGENT", "").lower() == "local" or claude_down():
+    prov = deep.provider()
+    if not prov or os.getenv("NAVEASY_AGENT", "").lower() == "local":
         return "local"
     if deep.enabled() and deep.wants_plan(text, st):
         return "deep"
-    return "claude"
+    return prov          # "claude" or "gemini": one tool-calling agent
 
 
 def chat(messages: list[dict], context: dict | None = None) -> dict:
@@ -272,12 +273,20 @@ def chat(messages: list[dict], context: dict | None = None) -> dict:
             out["steps"] = [{"kind": "note", "who": "agent", "status": "warn", "text": note}]
         return out
     try:
+        from . import deep
         if how == "deep":
-            from . import deep
             try:
                 return deep.run(last, context)
             except Exception as e:  # noqa: BLE001 - the planned mode is optional; fall back to the single agent, then to this machine
                 if _mark_down(e):
+                    if deep.provider() == "gemini":       # Claude is out of credit: plan the same request on Gemini
+                        try:
+                            out = deep.run(last, context)
+                            out.setdefault("steps", []).insert(0, {"kind": "note", "who": "planner", "status": "warn",
+                                                                   "text": f"Claude is unavailable ({_DOWN['why']}), so Gemini planned this."})
+                            return out
+                        except Exception as e2:  # noqa: BLE001
+                            return local(f"Claude and Gemini couldn't answer ({str(e2)[:80]}), so this was answered on this machine.")
                     return local(f"Claude is unavailable ({_DOWN['why']}), so this was answered on this machine.")
                 out = claude(last, context)
                 if out.get("unavailable"):
@@ -286,9 +295,16 @@ def chat(messages: list[dict], context: dict | None = None) -> dict:
                 return out
         if how == "claude":
             out = claude(last, context)
-            if out.get("unavailable"):
+            if not out.get("unavailable"):
+                return out
+            how = "gemini" if deep.provider() == "gemini" else "local"
+            if how == "local":
                 return local(f"Claude is unavailable ({_DOWN['why'] or 'error'}), so this was answered on this machine.")
-            return out
+        if how == "gemini":
+            try:
+                return deep.single(last, context)
+            except Exception as e:  # noqa: BLE001
+                return local(f"Gemini couldn't answer ({str(e)[:80]}), so this was answered on this machine.")
         return local()
     except Exception as e:  # noqa: BLE001 - a spoken interface must always answer
         return {"text": f"Sorry, I couldn't look that up ({str(getattr(e, 'detail', e))[:120]}). Please try again.", "ui_actions": [], "state": context.get("state") or {}, "mode": how}

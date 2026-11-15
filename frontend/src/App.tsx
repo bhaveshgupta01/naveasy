@@ -18,6 +18,7 @@ interface OpenUnit {
   tab?: 'heat' | 'score' | 'plan' | 'tour'
   plan?: FurnishPlan
   autoPlanFrom?: string
+  n?: number // a new plan for the same unit (a piece moved by asking) remounts the view
 }
 
 export default function App() {
@@ -46,6 +47,9 @@ export default function App() {
   const [contrast, setContrast] = useState(false)
   const [step, setStep] = useState(-1)
   const startVoice = useRef<(() => void) | null>(null)
+  const dockCtl = useRef<{ active: () => boolean; hear: (t: string) => void } | null>(null)
+  const agentSet = useRef<string | null>(null) // needs the agent itself just ticked, so they aren't mistaken for the person's
+  const planN = useRef(0)
   const [drone, setDrone] = useState<{ b: Building; pitch: number } | null>(null) // the map handed over to a home's drone model
   const allRef = useRef<Building[]>([])
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -138,11 +142,21 @@ export default function App() {
       for (const a of actions) {
         if (a.type === 'set_map_view') {
           if (a.city && a.city !== city) setCity(a.city)
-          if (a.profiles?.length) setProfiles(a.profiles)
+          if (a.profiles?.length) {
+            agentSet.current = [...a.profiles].sort().join(',')
+            setProfiles(a.profiles)
+          }
           fly(a.center, a.zoom)
+        } else if (a.type === 'set_filters') {
+          if (a.profiles?.length) {
+            agentSet.current = [...a.profiles].sort().join(',')
+            setProfiles(a.profiles)
+          }
+          if (a.max_rent !== undefined) setMaxRent(a.max_rent ? String(a.max_rent) : '')
+          if (a.city && a.city !== city) setCity(a.city)
         } else if (a.type === 'highlight_buildings') setHighlighted(a.ids)
         else if (a.type === 'open_building') setSelectedId(a.id)
-        else if (a.type === 'open_unit') setOpenUnit({ modelId: a.model_id, profile: a.profile, tab: a.tab as OpenUnit['tab'], plan: a.plan })
+        else if (a.type === 'open_unit') setOpenUnit({ modelId: a.model_id, profile: a.profile, tab: a.tab as OpenUnit['tab'], plan: a.plan, n: a.plan ? ++planN.current : 0 })
         else if (a.type === 'show_route') {
           setSelectedId(a.building_id)
           setAutoRoute({ category: a.category, profile: a.profile })
@@ -232,8 +246,8 @@ export default function App() {
   // at once; spoken ones hand their actions to the speak button, which runs each as its sentence is spoken.
   const ask = useCallback(
     async (text: string, channel: 'text' | 'voice' = 'text'): Promise<Reply & { steps?: Msg['steps'] }> => {
-      const opening = text === '__start__'
-      if (!opening) setMsgs((m) => [...m, { role: 'user', content: text }])
+      const hidden = text.startsWith('__') // __start__, __ui_needs__: signals from the app, not words the person said
+      if (!hidden) setMsgs((m) => [...m, { role: 'user', content: text }])
       if (channel === 'voice' && !convo.current.location)
         navigator.geolocation?.getCurrentPosition(
           (p) => (convo.current.location = { lat: p.coords.latitude, lon: p.coords.longitude }),
@@ -250,7 +264,7 @@ export default function App() {
           setLiveSteps([])
         })
         convo.current.state = r.state ?? convo.current.state
-        setMsgs((m) => [...m, { role: 'assistant', content: r.text, steps: r.steps, mode: r.mode }])
+        if (r.text) setMsgs((m) => [...m, { role: 'assistant', content: r.text, steps: r.steps, mode: r.mode }])
         if (channel === 'text') runActions(r.ui_actions ?? [])
         return { text: r.text, ui_actions: r.ui_actions ?? [], steps: r.steps }
       } catch (e) {
@@ -262,6 +276,22 @@ export default function App() {
     [city, profiles, runActions],
   )
   const askVoice = useCallback((text: string) => ask(text, 'voice'), [ask])
+  useEffect(() => {
+    const now = [...profiles].sort().join(',')
+    if (agentSet.current === now) {
+      agentSet.current = null
+      return
+    }
+    const st = convo.current.state as { profiles?: string[]; guide?: string; homes?: unknown[] }
+    if (!st.profiles || !(st.guide || st.homes) || [...st.profiles].sort().join(',') === now || !profiles.length) return
+    const t = window.setTimeout(() => {
+      // spoken in the voice conversation if one is on, otherwise asked in the chat
+      if (dockCtl.current?.active()) dockCtl.current.hear('__ui_needs__')
+      else void ask('__ui_needs__', 'text')
+    }, 900) // ticking two boxes in a row is one change
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profiles])
   const askText = useCallback((text: string) => ask(text, 'text').then((r) => r.text), [ask])
 
   // What is on screen right now, so the assistant can answer questions about it ("how wide is that door?")
@@ -586,7 +616,7 @@ export default function App() {
       )}
       {openUnit && (
         <UnitView
-          key={openUnit.modelId + (openUnit.tab ?? '')}
+          key={openUnit.modelId + (openUnit.tab ?? '') + (openUnit.n ?? '')}
           modelId={openUnit.modelId}
           profiles={profiles}
           initialProfile={openUnit.profile}
@@ -598,7 +628,7 @@ export default function App() {
           onClose={() => setOpenUnit(null)}
         />
       )}
-      <SpeakDock ask={askVoice} runActions={runActions} onChat={() => setTab('ask')} chatOpen={tab === 'ask'} startRef={startVoice} />
+      <SpeakDock ask={askVoice} runActions={runActions} onChat={() => setTab('ask')} chatOpen={tab === 'ask'} startRef={startVoice} controlRef={dockCtl} />
     </div>
   )
 }

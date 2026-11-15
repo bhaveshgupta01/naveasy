@@ -888,3 +888,51 @@ if __name__ == "__main__":
         plan = load_plan(mid)
         render_png(plan, analyze(plan, r["placements"]), DATA / "furniture" / f"{mid}_plan.png", "wheelchair", furniture=r["placements"])
         render_png(plan, analyze(plan, r["typical_placements"]), DATA / "furniture" / f"{mid}_typical.png", "wheelchair", furniture=r["typical_placements"])
+
+
+def move_piece(target: "str | Plan", placements: list[dict], piece: str, room_id: str, want: tuple[float, float], profiles: list[str],
+               check_only: bool = False) -> dict:
+    """Re-place one piece of a plan against the wall that lies in direction `want` (a unit vector, plan meters) inside
+    room `room_id`, keeping every other piece where it is: what someone asks for when they say "what if the sofa goes
+    against the left wall of the living room?". Tries up to six spots along that wall (each legal: no overlap, clear of
+    door swings and built-ins) and keeps the one that scores best for the person's needs, then reports what changed."""
+    plan = target if isinstance(target, Plan) else load_plan(target)
+    f = plan.floors[plan.entry_floor]
+    idx = next((i for i, p in enumerate(placements) if p["label"] == piece), None)
+    if idx is None:
+        idx = next((i for i, p in enumerate(placements) if piece in p["label"] or p["label"] in piece), None)
+    if idx is None:
+        return {"ok": False, "reason": f"There's no {piece} in the plan."}
+    it = placements[idx]
+    others = [p for i, p in enumerate(placements) if i != idx]
+    ri = next((i for i, r in enumerate(f.rooms) if r["id"] == room_id), None)
+    if ri is None:
+        return {"ok": False, "reason": "That room isn't on this floor of the scan."}
+    std = STANDARD.get(it["label"])
+    w, d = (std[0], std[1]) if std else tuple(sorted(it["rect"][2:], reverse=True))
+    zone = _door_zones(f, 0.9)
+    cands = [(rect, fc) for rect, fc in _candidates(f, [ri], w, d, free_standing=False)
+             if fc and -(fc[0] * want[0] + fc[1] * want[1]) > 0.7 and _legal(f, rect, others, zone)]
+    if not cands:
+        return {"ok": False, "reason": f"A {w:.2f} by {d:.2f} meter {it['label']} has no spot against that wall that keeps clear of the "
+                                       "doors and the other pieces."}
+    if check_only:
+        return {"ok": True}
+    before = analyze(plan, placements, layers=False)
+    best = None
+    for rect, fc in cands[:: max(1, len(cands) // 6)][:6]:
+        moved = {k: v for k, v in it.items() if k not in ("why", "needs", "caution")}
+        moved.update(rect=rect, facing=fc, room=f.rooms[ri]["id"], rotation_deg=0 if rect[2] >= rect[3] else 90)
+        res = analyze(plan, others + [moved], layers=False)
+        score = _combined(res, profiles)
+        if best is None or score > best[0]:
+            best = (score, moved, res)
+    score, moved, res = best
+    key = lambda p: (p["kind"], p["text"])  # noqa: E731
+    old = {key(p) for p in before["problems"] if p["profile"] in profiles and p["severity"] != "low"}
+    now = [p for p in res["problems"] if p["profile"] in profiles and p["severity"] != "low"]
+    return {"ok": True, "placement": moved, "placements": placements[:idx] + [moved] + placements[idx + 1:],
+            "score_before": round(_combined(before, profiles)), "score_after": round(score),
+            "scores_after": {p: res["scores"][p] for p in profiles}, "problems": now,
+            "problems_new": [p for p in now if key(p) not in old],
+            "problems_gone": [p for p in before["problems"] if key(p) in old and key(p) not in {key(q) for q in now}]}

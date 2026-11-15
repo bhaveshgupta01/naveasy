@@ -380,11 +380,64 @@ def _pick_guided(low: str, cmd: dict, st: dict) -> str | None:
     return home
 
 
+def _sync_filters(st: dict, had: tuple, actions: list) -> None:
+    """Move the app's filters (the needs boxes, the max rent) to what was just said, without waiting for the search."""
+    act: dict = {}
+    if st.get("needs_known") and not st.get("general") and (st.get("profiles") != had[0] or not had[2]):
+        act["profiles"] = st["profiles"]
+    if st.get("budget_known") and (st.get("budget") != had[1] or not had[3]):
+        act["max_rent"] = st.get("budget")
+    if act:
+        actions.append({"type": "set_filters", **act})
+
+
+def _ui_needs(st: dict, ctx: dict, actions: list) -> str:
+    """The person changed the needs boxes on screen during the conversation: ask before switching what the agent uses
+    (or, while the agent is asking for needs, take the boxes as the answer)."""
+    ui = [p for p in ctx.get("profiles") or [] if p in ALL_NEEDS]
+    cur = list(st.get("profiles") or [])
+    if not ui or set(ui) == set(cur) or not (st.get("guide") or st.get("homes") or st.get("home")):
+        return ""
+    words = lambda ps: " and ".join(NEED_NAME[p] for p in ps)  # noqa: E731
+    if st.get("guide") == "needs":
+        st["profiles"], st["general"], st["needs_known"] = ui, False, True
+        return f"Okay: {words(ui)}. " + (_guide("", "", {"needs": [], "intent": None}, st, actions) or "")
+    st["pending_needs"] = ui
+    return (f"I see you switched the screen to {words(ui)}. Should I look for homes for {words(ui)} from now on, "
+            f"instead of {words(cur)}? Say yes, or say keep {NEED_NAME[cur[0]] if cur else 'it'}.")
+
+
+def _pending_needs(t: str, low: str, st: dict, actions: list) -> str | None:
+    """The answer to "should I switch to the needs you ticked?". Yes switches (and searches again if homes were listed);
+    keep puts the boxes back. Anything else keeps what the agent had, puts the boxes back, and carries on."""
+    ui = st.pop("pending_needs")
+    words = lambda ps: " and ".join(NEED_NAME[p] for p in ps)  # noqa: E731
+    if re.search(YES + r"|switch|change it|use (?:that|those|it)", low) and not re.search(r"\bkeep\b", low):
+        st["profiles"], st["general"] = ui, False
+        if st.get("homes") and (st.get("near") or st.get("origin") or st.get("area_known")):
+            homes, n, lead = _search(st, actions)
+            if homes:
+                st["homes"] = [{"id": h["id"], "name": h["name"], "score": h["score"]} for h in homes[:5]]
+                st["home"], st["unit"], st["guide"] = None, None, "pick"
+                top = homes[:3]
+                actions.append({"type": "set_map_view", "center": [sum(h["lon"] for h in top) / len(top), sum(h["lat"] for h in top) / len(top)],
+                                "zoom": 13.2, "profiles": ui, "city": st["city"]})
+                actions.append({"type": "highlight_buildings", "ids": [h["id"] for h in homes[:5]]})
+                return f"Okay, {words(ui)} from now on. I ranked the homes again. " + lead + narrate.home_list(homes, n)
+        return f"Okay, {words(ui)} from now on."
+    actions.append({"type": "set_filters", "profiles": st["profiles"]})
+    if re.search(NO + r"|\bkeep\b|stay|leave it", low):
+        return f"Okay, I'll keep {words(st['profiles'])}."
+    return None
+
+
 def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
     """One step of the conversation the agent leads. Returns what to say, or None to let the ordinary handlers answer."""
     stage = st["guide"]
     if stage in ("needs", "budget", "area"):
+        had = (list(st.get("profiles") or []), st.get("budget"), st.get("needs_known"), st.get("budget_known"))
         got = _fill(t, low, cmd, st)
+        _sync_filters(st, had, actions)           # the boxes and the rent filter on the left change as soon as it's said
         if re.search(VENUE_WORDS, low) or find_named(t, st.get("city")):
             return None          # about the building we're in, or a home by name: answer it (a need said along the way is kept)
         if not got and cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") and not re.search(YES + "|" + NO, low):
@@ -484,9 +537,90 @@ def _furnish(pieces: list[str], st: dict, actions: list) -> str:
     said = narrate.plan_narration(plan, u, ["older"] if st.get("general") else ps)
     actions.append({"type": "open_unit", "model_id": st["unit"], "profile": ps[0], "tab": "plan", "plan": plan})
     st["guide"] = "done"
+    st["plan"], st["plan_prev"] = plan, None          # kept, so "what if the sofa goes on the left wall?" can move one piece
     say = lambda p: narrate.PIECE.get(p, p)  # noqa: E731
     names = narrate._join([say(p) if pieces.count(p) == 1 else f"{pieces.count(p)} {say(p)}s" for p in dict.fromkeys(pieces)])
     return f"Here's where your {names} go{'es' if len(pieces) == 1 else ''}, so you can still get everywhere. " + said["text"] + " " + _closing(st)
+
+
+SIDE_WORDS = r"\b(left|right|far|back|opposite|door|entrance|top|bottom|upper|lower)\b"
+ROOM_WORDS = {"living room": ("Living Room",), "hall": ("Living Room", "Hallway"), "lounge": ("Living Room",), "hallway": ("Hallway",),
+              "bedroom": ("Bedroom",), "kitchen": ("Kitchen",), "dining": ("Dining Room", "Kitchen"), "office": ("Office", "Bedroom")}
+
+
+def _furniture_edit(t: str, low: str, st: dict, actions: list) -> str | None:
+    """Move one piece of the plan where the person asks ("what if the sofa goes against the left wall of the living
+    room?") and say what that changes for them; "undo" puts it back. None when it isn't such a request."""
+    plan = st.get("plan")
+    if not plan or not st.get("unit"):
+        return None
+    if re.fullmatch(r"\W*(?:undo|undo that|put it back|go back|change it back|revert(?: that)?)\W*", low):
+        if not st.get("plan_prev"):
+            return "There's nothing to undo: the plan is as I made it."
+        plan["placements"], st["plan_prev"] = st["plan_prev"], None
+        actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0], "tab": "plan", "plan": plan})
+        return "Okay, it's back where I had it."
+    pieces = parse_furniture(low)
+    side = re.search(SIDE_WORDS, low)
+    if not pieces or not side or not re.search(r"\b(move|put|place|what if|how about|instead|could|can i|can we|try)\b", low):
+        return None
+    from pipeline import furnish as F
+
+    from . import main as api
+    ps = st["profiles"]
+    u = api.unit_heatmap(st["unit"], ps[0])
+    piece = pieces[0]
+    current = next((p for p in plan["placements"] if p["label"] == piece or piece in p["label"]), None)
+    if not current:
+        return f"Your plan has no {narrate.PIECE.get(piece, piece)}. You can ask me to plan again with it: tell me all the furniture you own."
+    room = None
+    for word, types in ROOM_WORDS.items():
+        if re.search(rf"\b{word}\b", low):
+            room = next((r for t_ in types for r in u["rooms"] if r["type"] == t_), None)
+            if room:
+                break
+    room = room or next((r for r in u["rooms"] if r["id"] == current.get("room")), None)
+    if not room:
+        return None
+    w = side.group(1)
+    screen = bool(re.search(r"\b(map|plan|screen|picture|drawing|top|bottom|upper|lower)\b", low))
+    if screen:     # the floor plan on screen: up is +y
+        want = {"left": (-1, 0), "right": (1, 0), "top": (0, 1), "upper": (0, 1), "bottom": (0, -1), "lower": (0, -1)}.get(w)
+        where = f"the {w} side of the {room['type'].lower()} on the plan"
+    else:          # standing in the room's doorway, facing in
+        door = narrate._door_into(u, room) or next((d for d in u["doors"] if d.get("entry")), None)
+        if not door:
+            return None
+        n = narrate._inward(door, room)
+        want = {"left": (-n[1], n[0]), "right": (n[1], -n[0]), "far": n, "back": n, "opposite": n, "door": (-n[0], -n[1]), "entrance": (-n[0], -n[1])}.get(w)
+        where = f"the {'wall with the door' if w in ('door', 'entrance') else w + ' wall' if w in ('left', 'right') else 'far wall'} of the {room['type'].lower()}, as you come in"
+    if not want:
+        return None
+    r = F.move_piece(st["unit"], plan["placements"], current["label"], room["id"], want, ps)
+    name = narrate.PIECE.get(current["label"], current["label"])
+    if not r["ok"]:
+        # say where it would fit instead, in the same frame
+        if screen:
+            options = {"left side": (-1, 0), "right side": (1, 0), "top": (0, 1), "bottom": (0, -1)}
+        else:
+            options = {"left wall": (-n[1], n[0]), "right wall": (n[1], -n[0]), "far wall": n, "wall with the door": (-n[0], -n[1])}
+        fits = [k for k, v in options.items() if v != want and F.move_piece(st["unit"], plan["placements"], current["label"], room["id"], v, ps, check_only=True)["ok"]]
+        return (f"Your {name} can't go against {where}: {narrate._say_in(r['reason'])}"
+                + (f" In the {room['type'].lower()} it would fit against " + (", ".join(f"the {k}" for k in fits[:-1]) + " or " if len(fits) > 1 else "")
+                   + f"the {fits[-1]}." if fits else ""))
+    st["plan_prev"] = plan["placements"]
+    plan["placements"], plan["score_after"], plan["problems"] = r["placements"], r["score_after"], r["problems"]
+    actions.append({"type": "open_unit", "model_id": st["unit"], "profile": ps[0], "tab": "plan", "plan": plan})
+    out = f"Okay, your {name} goes against {where}. "
+    if r["score_after"] < r["score_before"]:
+        out += f"That costs {r['score_before'] - r['score_after']} points for you: the home scores {r['score_after']}, down from {r['score_before']}. "
+        if r["problems_new"]:
+            out += "Here's why: " + narrate._say_in(r["problems_new"][0]["text"]) + " "
+    elif r["score_after"] > r["score_before"]:
+        out += f"That's better for you: the home scores {r['score_after']}, up from {r['score_before']}. "
+    else:
+        out += f"The home still scores {r['score_after']} for you; nothing you need gets blocked. "
+    return narrate.speakable(out + "Say undo to put it back.")
 
 
 def _closing(st: dict) -> str:
@@ -664,6 +798,15 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         st.update(keep, profiles=ctx.get("profiles") or ["wheelchair"], guide="needs")
         st.setdefault("city", ctx.get("city") or "houston")
         return done(GREETING)
+    if t == "__ui_needs__":        # the needs boxes were changed by hand while we were talking
+        return done(_ui_needs(st, ctx, actions), remember=False)
+    if st.get("pending_needs"):
+        said = _pending_needs(t, low, st, actions)
+        if said is not None:
+            return done(said)
+    said = _furniture_edit(t, low, st, actions)
+    if said is not None:
+        return done(said)
     cmd, smart = _understand(t, st, screen)
     intent = cmd.get("intent")
 
@@ -676,7 +819,8 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         if said is not None:
             return done(said)
 
-    # things said at any time are remembered: needs, city, budget, the qualities wanted
+    # things said at any time are remembered: needs, city, budget, the qualities wanted (and the filters on the left follow)
+    had = (list(st.get("profiles") or []), st.get("budget"), True, True)
     changed = False
     if cmd["needs"] and set(cmd["needs"]) != set(st["profiles"]):
         st["profiles"], changed = cmd["needs"], True
@@ -698,6 +842,10 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
             for k in ("near", "budget", "bedrooms"):
                 if not cmd.get({"near": "near_place", "budget": "max_rent", "bedrooms": "bedrooms"}[k]):
                     st.pop(k, None)
+    if cmd["needs"] or cmd.get("max_rent"):
+        st.setdefault("needs_known", bool(cmd["needs"]))
+        st.setdefault("budget_known", bool(cmd.get("max_rent")))
+        _sync_filters(st, had, actions)
     ps = st["profiles"]
     needs_words = " and ".join(NEED_NAME[p] for p in ps)
 

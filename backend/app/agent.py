@@ -227,8 +227,8 @@ def route(text: str, context: dict) -> str:
     searches), or "claude" (one tool-calling agent, for everything else typed)."""
     from . import deep, dialogue
     st = context.get("state") or {}
-    if context.get("channel") == "voice" or text == dialogue.GUIDE_START or st.get("guide") in dialogue.GUIDE_STAGES:
-        return "local"
+    if context.get("channel") == "voice" or text.startswith("__") or st.get("guide") in dialogue.GUIDE_STAGES or st.get("pending_needs"):
+        return "local"      # voice, the guided conversation, and signals from the app (__start__, __ui_needs__) stay local
     if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("NAVEASY_AGENT", "").lower() == "local":
         return "local"
     if deep.enabled() and deep.wants_plan(text, st):

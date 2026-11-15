@@ -197,3 +197,46 @@ def test_a_venue_question_is_answered_even_when_it_names_a_need(venue_stub):
     out, st = _talk(["__start__", "How do I get from the entrance to the classroom in a wheelchair?"])
     assert ("route", "entrance", "classroom") in venue_stub and "budget" not in out[1]["text"].lower()
     assert st["profiles"] == ["wheelchair"] and st["guide"] == "needs"
+
+
+def test_the_filters_follow_each_answer(offline):
+    out, st = _talk(["__start__", "I'm blind", "about 1800"])
+    assert {"type": "set_filters", "profiles": ["blind"]} in out[1]["ui_actions"]        # ticked as soon as it's said
+    assert {"type": "set_filters", "max_rent": 1800} in out[2]["ui_actions"]
+
+
+def test_a_box_ticked_by_hand_is_confirmed_before_the_agent_switches(offline):
+    st = {}
+    for t in ["__start__", "I use a wheelchair", "any", "near Midtown"]:
+        st = dialogue.respond(t, st, {"city": "houston", "profiles": ["wheelchair"], "channel": "voice"})["state"]
+    ask = dialogue.respond("__ui_needs__", st, {"city": "houston", "profiles": ["blind"], "channel": "voice"})
+    assert "switched the screen to blind or low vision" in ask["text"] and ask["text"].rstrip().endswith("keep wheelchair.")
+    kept = dialogue.respond("keep wheelchair", ask["state"], {"city": "houston", "profiles": ["blind"], "channel": "voice"})
+    assert kept["text"] == "Okay, I'll keep wheelchair." and {"type": "set_filters", "profiles": ["wheelchair"]} in kept["ui_actions"]
+    ask = dialogue.respond("__ui_needs__", kept["state"], {"city": "houston", "profiles": ["blind"], "channel": "voice"})
+    yes = dialogue.respond("yes", ask["state"], {"city": "houston", "profiles": ["blind"], "channel": "voice"})
+    assert yes["state"]["profiles"] == ["blind"] and "ranked the homes again" in yes["text"] and "One: The Rice" in yes["text"]
+    same = dialogue.respond("__ui_needs__", yes["state"], {"city": "houston", "profiles": ["blind"], "channel": "voice"})
+    assert same["text"] == ""                                                        # nothing changed: say nothing
+
+
+def test_moving_one_piece_by_asking(offline, monkeypatch):
+    import pipeline.furnish as F
+    u = {"rooms": [{"id": "r0", "type": "Living Room", "polygon": [[0, 0], [5, 0], [5, 6], [0, 6]], "centroid": [2.5, 3.0], "area_m2": 30}],
+         "doors": [{"id": "d0", "x": 0.0, "y": 3.0, "angle_deg": 90, "entry": True, "is_door": True}]}
+    monkeypatch.setattr(api, "unit_heatmap", lambda *a, **k: u)
+    seen = {}
+
+    def move(target, placements, piece, room_id, want, profiles, check_only=False):
+        seen["want"] = (round(want[0], 3), round(want[1], 3))
+        return {"ok": True, "placements": [{"label": "sofa", "room": "r0", "rect": [1, 5, 2.1, 0.9], "facing": [0, -1]}], "score_before": 92, "score_after": 85,
+                "problems": [], "problems_new": [{"text": "The way to the bedroom narrows to about 30 in clear."}], "problems_gone": []}
+    monkeypatch.setattr(F, "move_piece", move)
+    st = {"profiles": ["wheelchair"], "city": "houston", "unit": "u1", "guide": "done",
+          "plan": {"placements": [{"label": "sofa", "room": "r0", "rect": [4, 1, 0.9, 2.1], "facing": [-1, 0]}], "score_after": 92}}
+    r = dialogue.respond("what if I put the sofa against the left wall of the hall?", st, {"city": "houston", "profiles": ["wheelchair"], "channel": "voice"})
+    assert seen["want"] == (0.0, 1.0)            # walking in from the west door facing east, the left wall is the north wall
+    assert "left wall of the living room" in r["text"] and "costs 7 points" in r["text"] and "about 30 inches clear" in r["text"]
+    assert r["ui_actions"][0]["type"] == "open_unit" and r["ui_actions"][0]["tab"] == "plan"
+    back = dialogue.respond("undo", r["state"], {"city": "houston", "profiles": ["wheelchair"], "channel": "voice"})
+    assert back["text"].startswith("Okay, it's back") and back["state"]["plan"]["placements"][0]["rect"] == [4, 1, 0.9, 2.1]

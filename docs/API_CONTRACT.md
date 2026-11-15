@@ -168,6 +168,8 @@ Response `{ text, ui_actions: [...], state, mode: "local" | "claude" | "deep", s
 - `steps`: what the agent did, in order: `{ kind: "plan" | "subagent" | "tool" | "check" | "note", who, text, status }`.
   `who` is `planner`, `building`, `inside`, `outside`, `checker` or `agent`. The last `check` step says how many numbers
   in the answer were found in the tool results.
+- The message `__ui_needs__` tells the agent the person changed the needs boxes by hand; it asks before switching (or, while asking for needs, takes the boxes as the answer). An empty `text` means nothing to say.
+- After a furnishing plan, "what if the sofa goes against the left wall of the living room" moves that one piece (`pipeline.furnish.move_piece`) and says what it changes; "undo" puts it back.
 - The message `__start__` starts the guided conversation (the agent asks what help is needed, then budget and area,
   reads back three homes, tours the chosen one from the entry door and plans the person's furniture).
 
@@ -176,5 +178,5 @@ Response `{ text, ui_actions: [...], state, mode: "local" | "claude" | "deep", s
 
 Each action is one of `set_map_view {center: [lon, lat], zoom, profiles, city}`, `highlight_buildings {ids}`, `open_building {id}`,
 `show_route {building_id, category, profile}`, `open_unit {model_id, profile, problem_id, tab, plan}`, `show_relocation {request}`,
-`open_drone {id}`, `draw_route {route, building_id}` (a route from a named origin, such as the venue's walk from the station), `tour_goto {model_id, x, y, look, z}` (move the 3D tour's camera to the scan position nearest a spot, facing `look`; `z` is that floor's height). Any action may carry `cue`: text from the answer; when the answer is spoken, the action runs as the
+`open_drone {id}`, `draw_route {route, building_id}` (a route from a named origin, such as the venue's walk from the station), `set_filters {profiles?, max_rent?, city?}` (the filters on the left, set as soon as the conversation learns them), `tour_goto {model_id, x, y, look, z}` (move the 3D tour's camera to the scan position nearest a spot, facing `look`; `z` is that floor's height). Any action may carry `cue`: text from the answer; when the answer is spoken, the action runs as the
 sentence containing the cue starts (the map follows a list as it is read out). Without `cue` it runs at once.

@@ -25,6 +25,7 @@ interface Props {
   onChat: () => void
   chatOpen: boolean
   startRef?: React.MutableRefObject<(() => void) | null>
+  controlRef?: React.MutableRefObject<{ active: () => boolean; hear: (t: string) => void } | null>
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -66,7 +67,7 @@ function cueSchedule(text: string, parts: string[], actions: UiAction[]): { now:
   return { now, at }
 }
 
-export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef }: Props) {
+export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef, controlRef }: Props) {
   const [phase, setPhase] = useState<Phase>('off')
   const [heard, setHeard] = useState('')
   const [said, setSaid] = useState('')
@@ -184,7 +185,7 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
   const send = useCallback(
     async (text: string) => {
       const low = text.toLowerCase().trim().replace(/[.!?]+$/, '')
-      if (text !== '__start__') setHeard(text)
+      if (!text.startsWith('__')) setHeard(text) // __start__, __ui_needs__: signals from the app, not speech
       if (/^(stop|quiet|be quiet|cancel)$/.test(low)) return setP('idle')
       if (/^(slower|slow down|speak slower)$/.test(low)) {
         rate.current = Math.max(0.6, rate.current - 0.2)
@@ -198,6 +199,10 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
       setSaid('…')
       try {
         const r = await ask(text)
+        if (!r.text) {
+          runActions(r.ui_actions ?? [])
+          return setP('idle')
+        }
         void speak(r.text, r.ui_actions ?? [])
       } catch {
         void speak('Sorry, I could not reach the service. Please try again.')
@@ -338,6 +343,7 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
     setHeard('')
   }, [])
   if (startRef) startRef.current = () => void start()
+  if (controlRef) controlRef.current = { active: () => phaseRef.current !== 'off', hear: (t: string) => void send(t) }
   // for scripted demos and checks: send text as if it had been heard (like window.__tour in the 3D tour)
   ;(window as unknown as { __dock?: unknown }).__dock = { start: () => void start(), hear: (t: string) => void send(t) }
 

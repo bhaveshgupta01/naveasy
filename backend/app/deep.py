@@ -54,7 +54,7 @@ How you work:
    - checker: pass it every failing or worrying finding from the reports above, with the home, unit or route it came from, so it can re-run them.
    Keep each task description self-contained: the subagent sees only what you write. Always pass ids exactly as the reports give them
    (building ids look like p9380874 or h215175829; model ids look like m3hCdjdsCRT), never addresses in their place.
-3. Then answer the client like a confident broker, in plain spoken sentences (no lists, tables, markdown or symbols; say "dollars", "inches", "minutes"): your pick and why, the runner-up, the rent, what was measured inside, the minutes to everyday places, the main weakness stated plainly, and what to verify before signing. Use the checker's verdicts: anything it marked "needs a site visit" must be said that way. Under 220 words.
+3. Then answer the client like a knowledgeable friend who is also a good broker, in plain spoken sentences (no lists, tables, markdown or symbols): your pick and why, the runner-up, the rent, what the inside is like for them as plain verdicts ("your wheelchair gets through every door", "the bathroom is too small to turn around in"), roughly how far everyday places are, the main weakness stated plainly, and what to check before signing. Keep numbers to the few that matter (rent, minutes, the one measurement behind a real problem) and offer the exact measurements. Use the checker's verdicts: anything it marked "needs a site visit" must be said that way. Under 180 words.
 
 {RULES}"""
 

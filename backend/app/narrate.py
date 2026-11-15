@@ -416,7 +416,7 @@ def _why_clause(why: str) -> str:
     return speakable(_say_in(f"{lead} {rest}".strip()))
 
 
-def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) -> dict:
+def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None, casual: bool = False) -> dict:
     """A furnishing plan described the way the home tour is: room by room, standing in each room's doorway and facing in.
     `plan` is plan_furnishing()'s result and `unit` the target's /heatmap response. Every position comes from the plan's
     rectangles; nothing is placed by the narration."""
@@ -468,7 +468,14 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
                     pieces.append(f"Your {label} goes against a wall {where}, {far} in.")
             else:
                 pieces.append(f"Your {label} stands clear of the walls, {where}, {far} in.")
-            if p.get("why") and p.get("needs"):          # the need it serves, measured: said right after where it goes
+            if casual and p.get("needs") and casual_why(p):
+                said_ = casual_why(p)
+                if said_ in told_shape:
+                    told_shape[said_] += 1
+                else:
+                    told_shape[said_] = 0
+                    pieces[-1] += " " + said_
+            elif p.get("why") and p.get("needs") and not casual:          # the need it serves, measured: said right after where it goes
                 shape = re.sub(r"[\d.]+", "#", p["why"].lower())
                 if shape in told_shape:
                     told_shape[shape] += 1
@@ -485,7 +492,7 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
                         pieces[-1] = pieces[-1][:idx] + pieces[-1][idx].upper() + pieces[-1][idx + 1:]
         lead = (f"In the {name}, coming in through its door. " if own else f"In the {name}, facing in from the front door. ") if door else f"In the {name}. "
         parts.append(lead + " ".join(pieces))
-    for p in plan.get("placements", []):
+    for p in ([] if casual else plan.get("placements", [])):
         if "bed" in p["label"] and not p.get("why"):
             why = next((r for r in plan.get("reasons", []) if r.startswith("The bed")), None)
             m = re.search(r"with about (\d+) in clear on one side for transfers(?:, and (\d+) m from the bathroom)?", why or "")
@@ -506,18 +513,41 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
             names = _join([f"{labels.count(x)} {x}s" if labels.count(x) > 1 else f"your {x}" for x in dict.fromkeys(labels)])
             m = re.match(r"No (\w+) space found", reason)
             if m:
-                bits.append(f"The scan labels no {m.group(1)} in this home, so I couldn't place {names}.")
+                room_ = {"bedroom": "bedroom", "living": "living room", "dining": "dining area", "work": "room for a desk"}.get(m.group(1), m.group(1))
+                bits.append(f"The scan labels no {room_} in this home, so I couldn't place {names}.")
             else:
                 bits.append(f"{names[0].upper() + names[1:]} won't fit: {_say_in(reason)}")
         out["wont_fit"] = " ".join(bits)
-    if plan.get("score_after") is not None:
+    if plan.get("score_after") is not None and casual:
+        a = plan["score_after"]
+        s = "With this layout, everything works for you." if a >= 85 else "This layout works, with a couple of tight spots." if a >= 65 else "It's still tight in places, even laid out this way."
+        if plan.get("score_before") is not None and plan["score_before"] <= a - 10:
+            s += " That's a lot better than just pushing it all against the walls."
+        out["score"] = s
+    elif plan.get("score_after") is not None:
         s = f"With this layout the home scores {plan['score_after']} for you"
         if plan.get("ordinary_min") is not None and plan.get("ordinary_max") is not None and plan["ordinary_max"] > plan["ordinary_min"]:
             s += f"; ordinary layouts of the same pieces score {plan['ordinary_min']} to {plan['ordinary_max']}"
         out["score"] = s + "."
+    if casual and plan.get("wont_fit"):
+        bits, blocked = [], []
+        for w in plan["wont_fit"]:
+            m = re.match(r"No (\w+) space found", w["reason"])
+            name_ = PIECE.get(w["label"], w["label"])
+            if m:
+                room_ = {"bedroom": "a bedroom", "living": "a living room", "dining": "a dining area", "work": "a room for a desk"}.get(m.group(1), m.group(1))
+                bits.append((room_, name_))
+            else:
+                blocked.append(name_)
+        said_ = []
+        for room_ in dict.fromkeys(r_ for r_, _ in bits):
+            said_.append(f"The scan doesn't show {room_} here, so I couldn't place your {_join(list(dict.fromkeys(n_ for r_, n_ in bits if r_ == room_)))}.")
+        if blocked:
+            said_.append(f"Your {_join(list(dict.fromkeys(blocked)))} won't fit without blocking the way, so I left {'it' if len(set(blocked)) == 1 else 'them'} out.")
+        out["wont_fit"] = " ".join(said_)
     probs = [p for p in plan.get("problems", []) if p.get("severity") == "high" and p.get("profile") in (profiles or [p.get("profile")])]
     if probs:
-        out["problems"] = "Still to know: " + _say_in(probs[0]["text"])
+        out["problems"] = ("One thing to know: " + plain_problem(probs[0]) + ".") if casual else ("Still to know: " + _say_in(probs[0]["text"]))
     out["text"] = " ".join(out[k] for k in ("placed", "wont_fit", "score", "problems") if k in out)
     return out
 
@@ -748,7 +778,7 @@ def _grid_steps(unit: dict):
     return from_point
 
 
-def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | None = None) -> dict | None:
+def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | None = None, casual: bool = False) -> dict | None:
     """A walk through one floor that a 3D view can follow: stand just inside the front door, then go room by room in
     walking order. Each stop has a sentence (where the room is from the way you are facing, its size, the built-ins and
     windows on your left or right, its problems) and the point to stand on and look toward. Built from measured geometry
@@ -802,12 +832,35 @@ def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | Non
 
     def around(r, at, facing):
         bits = []
+        if casual:
+            kinds: dict[str, list] = {}
+            for f in unit.get("fixture_items") or []:
+                if f.get("room") == r["id"] and f.get("kind") not in ("toilet tank", "shelf or ledge", "raised floor or platform"):
+                    kinds.setdefault(f["kind"], []).append(f)
+            for kind, fs in kinds.items():
+                wheres = list(dict.fromkeys(_relative(facing, (f["x"] - at[0], f["y"] - at[1])) for f in fs))[:2]
+                many = len(fs) > 1
+                what = {"counter": "the counters" if many else "the counter", "vanity": "the vanities" if many else "the vanity", "island": "the island",
+                        "toilet": "the toilet", "tub": "the tub", "desk": "the desks" if many else "a desk"}.get(kind, f"the {kind}")
+                verdict = ""
+                hs = [f.get("height_in") for f in fs if f.get("height_in")]
+                if "wheelchair" in profiles and hs and kind in ("counter", "island", "vanity", "desk"):
+                    verdict = (", a good height for you" if max(hs) <= 34.5 else ", a bit high for you sitting down" if min(hs) > 34.5
+                               else ", one of them at a good height for you")
+                bits.append(f"{' and '.join(wheres)}, {what}{verdict}")
+            wins = [w for w in unit.get("windows", []) if _near_room(w, r)]
+            if wins:
+                bits.append(f"{_relative(facing, (wins[0]['x'] - at[0], wins[0]['y'] - at[1]))}, {'a window' if len(wins) == 1 else 'windows'}")
+            return bits[:4]
         for f in unit.get("fixture_items") or []:
             if f.get("room") != r["id"] or f.get("kind") in ("toilet tank", "shelf or ledge", "raised floor or platform"):
                 continue
             where = _relative(facing, (f["x"] - at[0], f["y"] - at[1]))
             what = FIXTURE_WORD.get(f["kind"], f"a {f['kind']}")
             hi = f" about {f['height_in']:.0f} inches high" if f.get("height_in") and f["kind"] in ("counter", "island", "vanity", "desk", "table") else ""
+            if casual:      # a height only matters to someone seated: say whether it suits them
+                hi = ((" at a good height for you" if f["height_in"] <= 34.5 else ", a bit high for you sitting down")
+                      if "wheelchair" in profiles and f.get("height_in") and f["kind"] in ("counter", "island", "vanity", "desk") else "")
             bits.append(f"{where}, {what}{hi}")
         wins = [w for w in unit.get("windows", []) if _near_room(w, r)]
         if wins:
@@ -817,7 +870,11 @@ def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | Non
 
     steps = []
     door_txt = f"the front door, about {entry['est_clear_in']:.0f} inches wide" if entry.get("est_clear_in") else "the front door"
-    steps.append({"text": f"We start at {door_txt}, facing in. You're in the {label(first)}.",
+    if casual:
+        verdict = {"pass": " It's wide enough for your wheelchair.", "tight": " It's a tight squeeze for a wheelchair.",
+                   "fail": " It's too narrow for a wheelchair."}.get(entry.get("status"), "") if "wheelchair" in profiles else ""
+        door_txt = "the front door"
+    steps.append({"text": f"We start at {door_txt}, facing in." + (verdict if casual else "") + f" You're in the {label(first)}.",
                   "x": round(here[0], 2), "y": round(here[1], 2), "look": [round(here[0] + n[0] * 2, 2), round(here[1] + n[1] * 2, 2)], "floor": floor})
     seen_types: dict[str, int] = {}
     todo = [r for r in rooms]
@@ -835,7 +892,14 @@ def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | Non
         vec = (to[0] - here[0], to[1] - here[1])
         seen_types[r["type"]] = seen_types.get(r["type"], 0) + 1
         name = ("the " if seen_types[r["type"]] == 1 else "a second " if seen_types[r["type"]] == 2 else "another ") + label(r)
-        if r["id"] == first["id"] and math.hypot(*vec) < 1.2:
+        if casual:
+            if r["id"] == first["id"] and math.hypot(*vec) < 1.2:
+                lead = size_word(r).strip()
+            else:
+                lead = f"{steps_word(meters)} {_relative(heading, vec)}, {'the middle of ' if r['id'] == first['id'] else ''}{name}." + size_word(r)
+            if "wheelchair" in profiles and r["type"] in ("Bedroom", "Bathroom", "Kitchen") and any(t.get("room") == r["id"] for t in unit.get("turning_circles", [])):
+                lead += " There's room to turn your wheelchair around here."
+        elif r["id"] == first["id"] and math.hypot(*vec) < 1.2:
             lead = f"Around you, {name}, {size(r)}."
         elif r["id"] == first["id"]:
             lead = f"{steps_word(meters)} {_relative(heading, vec)}, the middle of {name}, {size(r)}."
@@ -851,16 +915,20 @@ def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | Non
             turn = (far[0] - here[0], far[1] - here[1])
             heading = (turn[0] / math.hypot(*turn), turn[1] / math.hypot(*turn))
         bits = around(r, here, heading)
-        text = lead + (" " + ". ".join(b[0].upper() + b[1:] for b in bits) + "." if bits else "")
+        text = (lead + (" " + ". ".join(b[0].upper() + b[1:] for b in bits) + "." if bits else "")).strip()
         probs = [p for p in unit.get("all_problems") or unit.get("problems") or []
-                 if p["profile"] in profiles and p["severity"] != "low" and p.get("floor", floor) == floor and belongs(p, r) and p["id"] not in told_probs]
+                 if p["profile"] in profiles and p["severity"] != "low" and p.get("floor", floor) == floor and belongs(p, r) and p["id"] not in told_probs
+                 and not (casual and p.get("kind") == "counter_height")]      # casual: the built-in's own verdict already said it
         if probs:
             told_probs.update(p["id"] for p in probs[:2])
-            text += " Watch out: " + " ".join(_say_in(p["text"]) for p in probs[:2])
+            text += (" Heads up: " + " Also, ".join(plain_problem(p) + "." for p in probs[:2])) if casual else (" Watch out: " + " ".join(_say_in(p["text"]) for p in probs[:2]))
         steps.append({"text": speakable(text), "x": round(here[0], 2), "y": round(here[1], 2),
                       "look": [round(here[0] + heading[0] * 2, 2), round(here[1] + heading[1] * 2, 2)], "floor": floor})
     rest = [p for p in unit.get("problems") or [] if p["profile"] in profiles and p["severity"] == "high" and p["id"] not in told_probs]
     end = "That's the whole floor." + (f" One more thing to know: {_say_in(rest[0]['text'])}" if rest else "")
+    if casual:
+        end = ("That's the whole place." + (f" One more thing: {plain_problem(rest[0])}." if rest else "")
+               + " It's all from the 3D scan, so it's worth seeing in person. If you want the exact measurements, just ask.")
     steps.append({"text": speakable(end), "x": None, "y": None, "look": None, "floor": floor})
     return {"title": (unit.get("caption") or "This home"), "steps": steps}
 
@@ -870,9 +938,10 @@ def steps_word(m: float) -> str:
     return s[0].upper() + s[1:]
 
 
-def venue_walk(route: dict, floor_z: dict) -> dict | None:
+def venue_walk(route: dict, floor_z: dict, casual: bool = False) -> dict | None:
     """The venue's entrance-to-room route as a walk the 3D tour can follow (one stop per spoken phrase, across floors).
     `route` is pipeline.venue.inside_route(); `floor_z` maps the route's floor index to that floor's height."""
+    import re
     legs = [leg for leg in route.get("legs") or [] if len(leg.get("points") or []) >= 2]
     if not legs:
         return None
@@ -911,9 +980,236 @@ def venue_walk(route: dict, floor_z: dict) -> dict | None:
                 text += f", to {leg['to']}"
             out.append({"text": speakable(text + "."), "x": round(tx, 2), "y": round(ty, 2), "look": [round(tx + (tx - px) / d * 2, 2), round(ty + (ty - py) / d * 2, 2)],
                         "z": z, "floor": leg["floor"]})
-        if leg.get("narrowest_in"):
+        if leg.get("narrowest_in") and casual:
+            n_ = leg["narrowest_in"]
+            out[-1]["text"] += (" It's wide enough for a wheelchair the whole way." if n_ >= 36 else " It gets a bit narrow in one spot, but a wheelchair fits."
+                                if n_ >= 32 else " One spot on the way is too narrow for a wheelchair.")
+        elif leg.get("narrowest_in"):
             ev = (leg.get("narrowest_evidence") or {}).get("says", "")
             out[-1]["text"] += f" The narrowest point on the way is about {leg['narrowest_in']} inches" + (f", {ev}." if ev else ".")
     end = " ".join(route.get("needs_site_visit") or []) or "That's the way."
+    bf = route.get("between_floors") or {}
+    if casual and bf.get("stairs_found") and not bf.get("elevator_in_scan"):
+        end = f"The {re.sub(r'^the ', '', route.get('to', 'room'))} is upstairs, and I only see stairs in the scan, no elevator, so ask someone about a step-free way up."
     out.append({"text": speakable(end), "x": None, "y": None, "look": None, "z": None, "floor": None})
     return {"title": f"From the {route.get('from', 'entrance')} to the {route.get('to', 'room')}", "steps": out}
+
+
+# ---------------------------------------------------------------- casual: what a friend would say
+# The same measurements decide every verdict ("your wheelchair gets through every door" means every main doorway is at
+# least 32 inches clear); only the numbers are left out. Ask for the details and the measured version comes back.
+
+def minutes_word(m: float | None) -> str | None:
+    if m is None:
+        return None
+    return ("right around the corner" if m < 2 else "a few minutes away" if m < 6.5 else "about ten minutes away" if m < 13
+            else "about fifteen or twenty minutes away" if m < 22 else "a bit of a trek")
+
+
+def match_word(score: int) -> str:
+    return ("a strong match for you" if score >= 80 else "a good match" if score >= 65 else "an okay match, with some catches" if score >= 50
+            else "a tough fit for you")
+
+
+def size_word(r: dict) -> str:
+    a, t = r.get("area_m2") or 0, r.get("type")
+    small, roomy = {"Bathroom": (3.5, 6.5), "Bedroom": (9, 15), "Living Room": (12, 24), "Kitchen": (7, 16)}.get(t, (None, None))
+    if small is None:
+        return ""
+    return " It's on the small side." if a < small else " It's nice and roomy." if a > roomy else ""
+
+
+def plain_problem(p: dict) -> str:
+    """A measured problem the way a friend would put it: the verdict, not the inches."""
+    import re
+    t, k = p.get("text", ""), p.get("kind")
+    head = t.split(":")[0].strip()
+    thing = (head[:1].lower() + head[1:]) if head else "a door"
+    if k == "narrow_door":
+        return f"the {thing} is too narrow for a wheelchair" if p.get("severity") == "high" else f"the {thing} is a tight squeeze for a wheelchair"
+    if k == "threshold":
+        return f"there's a little step at the {thing}" if "step" in t else f"there's a raised threshold at the {thing}"
+    if k == "unreachable_room":
+        m = re.search(r"reach this ([\w ]+?):", t)
+        why = "it's on another floor" if "another floor" in t else "a door on the way is too narrow"
+        return f"a wheelchair can't get into the {m.group(1) if m else 'room'}, because {why}"
+    if k == "no_turning_space":
+        m = re.search(r"in this ([\w ]+?)(?: with|\s*\(|\.)", t)
+        return f"there isn't room to turn a wheelchair around in the {m.group(1) if m else 'room'}"
+    if k == "stairs":
+        return "there are stairs inside" if "Stairs here" not in t else "there are stairs here"
+    if k == "long_walk":
+        return "there's no bathroom on the bedroom's floor" if "No bathroom" in t else "the bathroom is a long walk from the bed"
+    if k == "complex_path":
+        m = re.search(r"to the (\w+) has", t)
+        return f"the way to the {m.group(1) if m else 'rooms'} has a lot of turns to learn"
+    if k == "path_obstacle":
+        m = re.search(r"The (.+?) sits", t)
+        return f"the {m.group(1) if m else 'furniture'} sits close to your walking path"
+    if k == "sightline":
+        return "you can't see the front door from the main seat, so a flashing doorbell would help"
+    if k == "counter_height":
+        return f"the {thing} is a bit high to use sitting down"
+    first = re.split(r"(?<=[.;])\s", _say_in(t))[0].rstrip(".;")
+    return first[:1].lower() + first[1:]
+
+
+def casual_why(p: dict) -> str:
+    needs, label = p.get("needs") or [], p.get("label", "")
+    if p.get("caution"):
+        return "It's a bit tight there."
+    if "wheelchair" in needs and "bed" in label:
+        return "There's room beside it to get in and out of your chair."
+    if "older" in needs and "bed" in label:
+        return "It's close to the bathroom."
+    if "deaf" in needs:
+        return "You can see the front door from there."
+    if "blind" in needs:
+        return "It's out of your walking path."
+    if "wheelchair" in needs:
+        return "It leaves you room to get around it."
+    if "older" in needs:
+        return "It keeps things close and easy to reach."
+    return ""
+
+
+def casual_list(homes: list[dict], n_found: int) -> str:
+    words = ["One", "Two", "Three"]
+    lines = []
+    for i, h in enumerate(homes[:3]):
+        line = f"{words[i]}: {h['name']}" + (f", from about {h['rent']:,} dollars a month" if h.get("rent") else "")
+        line += f", {match_word(h['score'])}" + ("" if h.get("inside") else ", though nobody's measured the inside yet") + "."
+        lines.append(line)
+    k = len(lines)
+    ask = "Which one do you want to hear about: " + ("one, two or three?" if k == 3 else "one or two?" if k == 2 else "this one?")
+    return f"I found {n_found:,} places. Here are my top {k}. " + " ".join(lines) + " " + ask
+
+
+def casual_pitch(b: dict, unit: dict | None, profiles: list[str], general: bool = False) -> str:
+    """The broker's summary, the way a friend who knows the place would say it."""
+    import re
+    street = re.sub(r"^\d+\s+", "", (b.get("address") or "").split(",")[0]).strip()
+    out = [f"{b['name']}" + (f", on {street}." if street and street.lower() not in b["name"].lower() else ".")]
+    if b.get("rent_min"):
+        out.append(f"Rent starts around {b['rent_min']:,} dollars a month.")
+    score = b["combined"]["score"]
+    out.append("Honestly, it's one of the better picks for you." if score >= 75 else "It works, with a couple of catches." if score >= 50
+               else "To be honest, it's going to be hard for you.")
+    if b.get("elevator"):
+        out.append("There are elevators, so no stairs to get up to the apartment.")
+    elif b.get("walkup") and (b.get("stories") or 1) > 1:
+        out.append("Heads up, it's a walk-up, so expect stairs.")
+    if b.get("year_built") and b["year_built"] < 1991:
+        out.append("It's an older building, from before the 1991 accessibility rules.")
+    probs = [p for p in ((unit or {}).get("all_problems") or (unit or {}).get("problems") or []) if p["profile"] in profiles and p["severity"] != "low"]
+    if unit and unit.get("rooms"):
+        cap = caption_words((unit.get("caption") or "").split(" – ")[0].strip())
+        floors = (unit.get("stats") or {}).get("floors", 1)
+        out.append(f"Inside, it's {'a ' + cap if cap and not cap.lower().startswith(('a ', 'the ')) else (cap or 'one unit')}"
+                   + (", all on one level." if floors <= 1 else f", over {floors} floors."))
+        if not general:
+            doors = [d for d in unit.get("doors", []) if d.get("is_door") and not d.get("minor") and not (d.get("exterior") and not d.get("entry"))]
+            if "wheelchair" in profiles and doors:
+                fail = [d for d in doors if d["status"] == "fail"]
+                tight = [d for d in doors if d["status"] == "tight"]
+                turns = {t["room"] for t in unit.get("turning_circles", [])}
+                need = [r for r in unit["rooms"] if r["type"] in ("Bedroom", "Bathroom", "Kitchen")]
+                missing = sorted({r["type"].lower() for r in need if r["id"] not in turns})
+                door_line = ("A door or two is too narrow for your chair." if fail else "One or two doors are a tight squeeze." if tight
+                             else "Your wheelchair gets through every door")
+                out.append(door_line + (f", but there's no room to turn around in the {_join(missing)}." if missing and not fail and not tight else
+                                        f" There's no room to turn around in the {_join(missing)}." if missing else
+                                        (", and there's room to turn around in every room." if not fail and not tight else " There's room to turn around in every room.")))
+            if "blind" in profiles:
+                bl = [p for p in probs if p["profile"] == "blind"]
+                out.append(("The layout's simple, with easy ways from the door to the bedroom, bathroom and kitchen." if not bl
+                            else plain_problem(bl[0])[:1].upper() + plain_problem(bl[0])[1:] + "."))
+            if "deaf" in profiles:
+                v = ((unit.get("checks") or {}).get("entry_visible_from_seat") or {}).get("value")
+                if v is not None:
+                    out.append("You can see the front door from the living room." if v >= 1 else "You can't see the front door from the main seating spot.")
+            if "older" in profiles:
+                m = (unit.get("stats") or {}).get("bed_to_bathroom_m")
+                if m is not None:
+                    out.append("The bathroom's just a few steps from the bed." if m <= 6 else "The bathroom's a short walk from the bed." if m <= 12
+                               else "The bathroom's a long walk from the bed.")
+        else:
+            out.append("The doors and hallways are a good width.")
+    elif not general:
+        out.append("Nobody's measured the inside yet, so I only know the building.")
+    near = {n["category"]: n["minutes"].get(profiles[0]) for n in b.get("nearest", []) if n["minutes"].get(profiles[0]) is not None}
+    bits = [f"{label} {minutes_word(near[c])}" for c, label in (("transit", "a bus stop"), ("grocery", "a grocery store"), ("pharmacy", "a pharmacy")) if c in near]
+    if bits:
+        out.append("You've got " + _join(bits) + ".")
+    high = [p for p in probs if p["severity"] == "high"]
+    if high:
+        out.append("The main catch: " + plain_problem(high[0]) + ".")
+    elif unit and not probs and not b.get("walkup"):
+        out.append("I didn't spot a real catch in what the scan can see.")
+    out.append("Before you sign, check the way in from the street and the parking in person.")
+    return " ".join(out)
+
+
+def casual_route(r: dict, profiles: list[str] | None = None) -> str:
+    dest = r["destination"].get("name") or (r.get("category") or "there")
+    how = "roll" if r.get("profile") == "wheelchair" else "walk"
+    out = [f"It's about a {r['minutes']:.0f}-minute {how} to {dest}."]
+    if r.get("elevation"):
+        g = r["elevation"]["max_grade_pct"]
+        out.append("It's pretty flat." if g < 2 else "There are a few gentle slopes." if g <= 5 else "There's a steep bit or two on the way.")
+    if r.get("crossings"):
+        out.append(f"You cross the street {r['crossings']} time{'s' if r['crossings'] != 1 else ''}.")
+    nosig = sum(1 for h in r.get("hard_spots", []) if "without signals" in h.get("text", ""))
+    if nosig:
+        out.append(f"{'A couple' if nosig > 1 else 'One'} of those crossings {'have' if nosig > 1 else 'has'} no signal, so take care there.")
+    if sum(s["meters"] for s in r["stretches"] if s["status"] == "grey") > 100:
+        out.append("Part of the way has no sidewalk on record, so I can't promise there is one.")
+    steps_ = [s for s in r.get("steps", []) if s.get("text")][:6]
+    if steps_ and "blind" in (profiles or [r.get("profile")]):
+        out.append("Here's the way: " + " ".join(s["text"] if s["text"].endswith(".") else s["text"] + "." for s in steps_))
+    elif steps_:
+        out.append("Want turn-by-turn directions? Just say so.")
+    return " ".join(out)
+
+
+def casual_venue_doors(d: dict, near: str | None = None) -> str:
+    doors = d.get("doors") or []
+    if not doors:
+        return "The scan doesn't show doors there that I can judge."
+    tape = "" if any((x.get("evidence") or {}).get("checked") for x in doors) else " That's from the 3D scan; we haven't checked it with a tape yet."
+    if near:
+        mine = [x for x in doors if any(near.lower() in r.lower() for r in x.get("rooms", []))]
+        if mine:
+            bad = [x for x in mine if x["status"] != "pass"]
+            return ((f"The {near.lower()} door{'s are' if len(mine) > 1 else ' is'} wide enough for a wheelchair." if not bad else
+                     f"One of the {near.lower()} doors is too narrow for a wheelchair.") + tape)
+    bad = [x for x in doors if x["status"] != "pass"]
+    return (("Every door here is wide enough for a wheelchair." if not bad else
+             f"Almost every door here is wide enough for a wheelchair. The exception is a door on {bad[0]['floor_label'].lower()}, which looks too narrow.")
+            + tape)
+
+
+def casual_venue_stairs(s: dict, way: dict | None = None) -> str:
+    out = []
+    if s.get("stairs"):
+        main = max(s["stairs"], key=lambda x: x["area_m2"])
+        out.append(f"The main stairs are on {main['floor'].lower()}.")
+    if way and way.get("spoken"):
+        first = way["spoken"].split(" The narrowest")[0]
+        out.append("From the entrance: " + first[0].lower() + first[1:])
+    if "not in the scan" in (s.get("elevator") or ""):
+        out.append("I don't see an elevator in the scan, so ask someone about a step-free way up.")
+    if s.get("raised_parts"):
+        out.append(f"Part of {s['raised_parts'][0]['floor'].lower()} is raised a few inches; it might be a step or a ramp, so watch for it.")
+    return " ".join(out)
+
+
+def casual_venue_outside(o: dict) -> str:
+    how = "roll" if o.get("profile") == "wheelchair" else "walk"
+    out = [f"From {o['from']} it's about a {o['minutes']:.0f}-minute {how}"]
+    steep = sum(1 for h in o.get("hard_spots") or [] if "too steep" in h or "Slope" in h)
+    out[0] += (", with a few steep bits on the way" if steep > 1 else ", with one steep bit" if steep else "") + "."
+    if o.get("crossings"):
+        out.append(f"You cross the street {o['crossings']} time{'s' if o['crossings'] != 1 else ''}, and the curbs aren't on record, so take it slow there.")
+    out.append("Which door is step-free is something to ask when you arrive.")
+    return " ".join(out)

@@ -366,6 +366,9 @@ def _pitch(st: dict) -> tuple[str, str | None]:
             u = u if u.get("has_graph") else None
         except Exception:  # noqa: BLE001
             u = None
+    st["last_kind"] = "pitch"
+    if _casual(st):
+        return narrate.casual_pitch(b, u, ps, st.get("general", False)), (uid if u else None)
     return narrate.broker_pitch(b, u, ps, st.get("general", False)), (uid if u else None)
 
 
@@ -378,6 +381,58 @@ def _pick_guided(low: str, cmd: dict, st: dict) -> str | None:
         if i is not None and i < len(homes):
             home = homes[i]["id"]
     return home
+
+
+DETAIL_ON = r"\b(?:more detail|in detail|the details|exact (?:numbers|measurements|sizes)|the (?:exact )?numbers|measurements|technical|specifics|precise(?:ly)?|how (?:wide|big|high) exactly|turn[- ]by[- ]turn)\b"
+DETAIL_OFF = r"\b(?:less detail|keep it simple|simpler|casual|plain english|short version|no numbers|too (?:technical|much detail))\b"
+
+
+def _casual(st: dict) -> bool:
+    """Talk like a friend (the verdict, not the inches) unless the person asked for the measurements."""
+    return not st.get("detail")
+
+
+def _walk(st: dict, u: dict, actions: list) -> str | None:
+    """The walk through the home, spoken; the 3D tour follows it (each stop's camera move is cued to its sentence)."""
+    walk = narrate.walk_tour(u, st["profiles"][0], st["profiles"], casual=_casual(st))
+    if not walk:
+        return None
+    actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0], "tab": "tour"})
+    for stop in walk["steps"]:
+        if stop["x"] is not None:
+            actions.append({"type": "tour_goto", "model_id": st["unit"], "x": stop["x"], "y": stop["y"], "look": stop["look"],
+                            "cue": " ".join(stop["text"].split()[:7])})
+    st["last_kind"] = "tour"
+    return " ".join(x["text"] for x in walk["steps"])
+
+
+def _detail(low: str, st: dict, actions: list) -> str | None:
+    """"Give me the details" switches to the measured version (and says the last thing again with its numbers);
+    "keep it simple" switches back."""
+    if re.search(DETAIL_OFF, low):
+        st["detail"] = False
+        return "Okay, I'll keep it simple."
+    if not re.search(DETAIL_ON, low) or re.search(r"\b(door|counter|window|bathroom|kitchen|bedroom|hall|route|rent)\b", low) and not re.search(r"\b(more detail|the details|in detail)\b", low):
+        return None
+    st["detail"] = True
+    kind = st.get("last_kind")
+    from . import main as api
+    if kind == "pitch" and st.get("home"):
+        return "Here are the details. " + _pitch(st)[0]
+    if kind == "tour" and st.get("unit"):
+        return "Here are the details. " + (_walk(st, api.unit_heatmap(st["unit"], st["profiles"][0]), actions) or "")
+    if re.search(r"turn[- ]by[- ]turn", low) and kind == "route" and st.get("home") and st.get("route_cat"):
+        st["detail"] = False            # directions asked for, not a switch to numbers everywhere
+        r = api.routes(st["home"], st["route_cat"], st["profiles"][0])
+        steps_ = [x for x in r.get("steps", []) if x.get("text")][:10]
+        return ("Here's the way: " + " ".join((x["text"] if x["text"].endswith(".") else x["text"] + ".") + (f" Continue {x['meters']} meters." if x.get("meters", 0) > 30 else "")
+                                              for x in steps_)) if steps_ else "I don't have turn-by-turn steps for that route."
+    if kind == "route" and st.get("home") and st.get("route_cat"):
+        return "Here are the details. " + narrate.route_narration(api.routes(st["home"], st["route_cat"], st["profiles"][0]))
+    if kind == "plan" and st.get("plan") and st.get("unit"):
+        u = api.unit_heatmap(st["unit"], st["profiles"][0])
+        return "Here are the details. " + narrate.plan_narration(st["plan"], u, st["profiles"])["text"]
+    return "Okay, I'll give you the exact measurements from now on."
 
 
 def _sync_filters(st: dict, had: tuple, actions: list) -> None:
@@ -423,7 +478,8 @@ def _pending_needs(t: str, low: str, st: dict, actions: list) -> str | None:
                 actions.append({"type": "set_map_view", "center": [sum(h["lon"] for h in top) / len(top), sum(h["lat"] for h in top) / len(top)],
                                 "zoom": 13.2, "profiles": ui, "city": st["city"]})
                 actions.append({"type": "highlight_buildings", "ids": [h["id"] for h in homes[:5]]})
-                return f"Okay, {words(ui)} from now on. I ranked the homes again. " + lead + narrate.home_list(homes, n)
+                st["last_kind"] = "list"
+                return f"Okay, {words(ui)} from now on. I ranked the homes again. " + lead + (narrate.casual_list(homes, n) if _casual(st) else narrate.home_list(homes, n))
         return f"Okay, {words(ui)} from now on."
     actions.append({"type": "set_filters", "profiles": st["profiles"]})
     if re.search(NO + r"|\bkeep\b|stay|leave it", low):
@@ -465,7 +521,8 @@ def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
         words = ["One", "Two", "Three"]
         for i, h in enumerate(top):     # the map follows the list as it is read out
             actions.append({"type": "set_map_view", "center": [h["lon"], h["lat"]], "zoom": 15.8, "cue": f"{words[i]}: {h['name']}"})
-        return ack + lead + narrate.home_list(homes, n, st.get("general", False))
+        st["last_kind"] = "list"
+        return ack + lead + (narrate.casual_list(homes, n) if _casual(st) else narrate.home_list(homes, n, st.get("general", False)))
     if stage in ("pick", "tour") and (stage == "pick" or not re.search(YES, low)):
         home = _pick_guided(low, cmd, st)
         if home:
@@ -494,16 +551,10 @@ def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
             st["guide"] = "furniture"
             ask = (" Would you like me to plan where your furniture goes? "
                    "Tell me what you own, for example a queen bed, a desk and a sofa. Or say no.")
-            doors = sec.get("doors") if st.get("general") or {"wheelchair", "older"} & set(st["profiles"]) else None
-            walk = narrate.walk_tour(u, st["profiles"][0], st["profiles"])
-            if walk:
-                # the 3D tour walks along with the voice: each stop's camera move is cued to its sentence
-                actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0], "tab": "tour"})
-                for stop in walk["steps"]:
-                    if stop["x"] is not None:
-                        actions.append({"type": "tour_goto", "model_id": st["unit"], "x": stop["x"], "y": stop["y"], "look": stop["look"],
-                                        "cue": " ".join(stop["text"].split()[:7])})
-                return " ".join(x["text"] for x in walk["steps"]) + (" " + doors if doors else "") + ask
+            doors = sec.get("doors") if (st.get("general") or {"wheelchair", "older"} & set(st["profiles"])) and not _casual(st) else None
+            walked = _walk(st, u, actions)
+            if walked:
+                return walked + (" " + doors if doors else "") + ask
             keys = (["layout"] + (["paths"] if "blind" in st["profiles"] else []) + ["rooms", "fixtures"] + (["doors"] if doors else []) + ["problems"])
             actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0]})
             return narrate._say_in(" ".join(sec[k] for k in keys if k in sec)) + ask
@@ -534,7 +585,8 @@ def _furnish(pieces: list[str], st: dict, actions: list) -> str:
     ps = st["profiles"]
     plan = plan_furnishing(st["unit"], [{"label": p} for p in pieces], ps, {})
     u = api.unit_heatmap(st["unit"], ps[0])
-    said = narrate.plan_narration(plan, u, ["older"] if st.get("general") else ps)
+    said = narrate.plan_narration(plan, u, ["older"] if st.get("general") else ps, casual=_casual(st))
+    st["last_kind"] = "plan"
     actions.append({"type": "open_unit", "model_id": st["unit"], "profile": ps[0], "tab": "plan", "plan": plan})
     st["guide"] = "done"
     st["plan"], st["plan_prev"] = plan, None          # kept, so "what if the sofa goes on the left wall?" can move one piece
@@ -612,6 +664,12 @@ def _furniture_edit(t: str, low: str, st: dict, actions: list) -> str | None:
     plan["placements"], plan["score_after"], plan["problems"] = r["placements"], r["score_after"], r["problems"]
     actions.append({"type": "open_unit", "model_id": st["unit"], "profile": ps[0], "tab": "plan", "plan": plan})
     out = f"Okay, your {name} goes against {where}. "
+    if _casual(st):
+        if r["score_after"] < r["score_before"]:
+            out += "That makes things a bit harder for you" + (f": {narrate.plain_problem(r['problems_new'][0])}. " if r["problems_new"] else ". ")
+        else:
+            out += "That's even better for you. " if r["score_after"] > r["score_before"] else "That works just as well for you; nothing you need gets blocked. "
+        return narrate.speakable(out + "Say undo to put it back.")
     if r["score_after"] < r["score_before"]:
         out += f"That costs {r['score_before'] - r['score_after']} points for you: the home scores {r['score_after']}, down from {r['score_before']}. "
         if r["problems_new"]:
@@ -624,6 +682,8 @@ def _furniture_edit(t: str, low: str, st: dict, actions: list) -> str | None:
 
 
 def _closing(st: dict) -> str:
+    if _casual(st):
+        return "Before you sign, check the way in from the street and the parking in person. Ask me anything else, like the way to the pharmacy, or say start over."
     from . import main as api
     b = api.building(st["home"], ",".join(st["profiles"])) if st.get("home") else {}
     check = [x for x in b.get("checklist", []) if not x.startswith("We did not check")][:2]
@@ -660,18 +720,18 @@ def _venue(t: str, low: str, st: dict, actions: list) -> str | None:
         o = V.outside_route(origin, ps[0])
         if o.get("route"):
             actions.append({"type": "draw_route", "route": o["route"], "building_id": V.VENUE_ID})
-        return narrate.venue_outside(o)
+        return narrate.casual_venue_outside(o) if _casual(st) else narrate.venue_outside(o)
     if re.search(r"stair|steps?\b|elevator|lift|upstairs|downstairs|level", low):
-        return narrate.venue_stairs(V.stairs(), V.inside_route("entrance", "stairs", ps[0]))
+        return (narrate.casual_venue_stairs if _casual(st) else narrate.venue_stairs)(V.stairs(), V.inside_route("entrance", "stairs", ps[0]))
     if re.search(r"door|wide|width|narrow", low):
         near = next((p for p in ("classroom", "landing", "entrance") if p in low), None)
         actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": "wheelchair"})
-        return narrate.venue_doors(V.door_widths(near=near), near)
+        return (narrate.casual_venue_doors if _casual(st) else narrate.venue_doors)(V.door_widths(near=near), near)
     if re.search(r"get to|route|way to|how (?:do|can) i|go to|reach|classroom|from the entrance|find the", low):
         to = next((p for p in ("classroom", "landing", "stairs") if p in low), "classroom")
         r = V.inside_route("entrance", to, ps[0])
         zs = {leg["floor"]: api_unit(V.PRIMARY, ps[0], leg["floor"])["floor_z"] for leg in r.get("legs") or []}
-        walk = narrate.venue_walk(r, zs)
+        walk = narrate.venue_walk(r, zs, casual=_casual(st))
         if walk:      # the 3D tour walks the route as it is spoken, up the stairs to the room
             actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": ps[0], "tab": "tour"})
             for stop in walk["steps"]:
@@ -681,6 +741,12 @@ def _venue(t: str, low: str, st: dict, actions: list) -> str | None:
             return " ".join(stop["text"] for stop in walk["steps"])
         actions.append({"type": "open_unit", "model_id": V.PRIMARY, "profile": ps[0]})
         return r.get("spoken") or f"I couldn't find a way from the entrance to the {to} in the scan."
+    if _casual(st):
+        e = (s.get("entrances") or [{}])[0]
+        return ("This is the Julis Romo Rabinowitz Building, where HackPrinceton is happening. The scan covers two floors joined by stairs. "
+                + ("The main entrance is nice and wide. " if (e.get("clear_in") or 0) >= 36 else "")
+                + "I don't see an elevator in the scan. Ask me how to get to the classroom, whether the doors are wide enough, where the stairs are, "
+                  "or the way from the station.")
     tour = V.venue_tour(ps[0])
     sec = tour.get("sections", {})
     return (" ".join(sec[k] for k in ("overview", "layout", "problems") if k in sec)
@@ -804,6 +870,9 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         said = _pending_needs(t, low, st, actions)
         if said is not None:
             return done(said)
+    said = _detail(low, st, actions)
+    if said is not None:
+        return done(said)
     said = _furniture_edit(t, low, st, actions)
     if said is not None:
         return done(said)
@@ -927,7 +996,8 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         except Exception as e:  # noqa: BLE001
             return done(f"I couldn't work out that route: {getattr(e, 'detail', e)}")
         actions.append({"type": "show_route", "building_id": st["home"], "category": cat, "profile": ps[0]})
-        return done(narrate.route_narration(r) + " Ask for another place, or about the inside.")
+        st["last_kind"], st["route_cat"] = "route", cat
+        return done((narrate.casual_route(r, ps) if _casual(st) else narrate.route_narration(r)) + " Ask for another place, or about the inside.")
 
     # ---- inside the current home
     if intent == "inside_home":
@@ -946,6 +1016,10 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
                      "doors" if re.search(r"door|wide|width", low) else
                      "problems" if re.search(r"problem|issue|barrier|wrong", low) else "size" if re.search(r"how (?:big|large)|size|square", low) else
                      "paths" if re.search(r"get to|reach|path|directions", low) else None)
+        if not topic and _casual(st):
+            walked = _walk(st, api.unit_heatmap(unit_id, ps[0]), actions)
+            if walked:
+                return done(walked + " Ask for a route, the neighborhood, or say next.")
         keys = {"light": ["light"], "doors": ["doors"], "fixtures": ["fixtures"], "problems": ["problems"], "size": ["overview", "rooms"], "paths": ["layout", "paths"]}.get(
             topic, ["overview", "layout"] + (["paths"] if "blind" in ps else []) + ["problems"])
         said = " ".join(sec[k] for k in keys if k in sec)

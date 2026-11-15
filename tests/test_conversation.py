@@ -89,7 +89,7 @@ def offline(monkeypatch):
     monkeypatch.setattr(narrate, "unit_narration", lambda *a, **k: {"sections": {"layout": "You come in through a door about 36 in wide.", "problems": "Nothing to report."}})
     import pipeline.furnish as F
     monkeypatch.setattr(F, "plan_furnishing", lambda mid, inv, ps, prefs: {"placements": [], "wont_fit": [], "score_after": 88, "reasons": [], "problems": [], "inventory": inv})
-    monkeypatch.setattr(narrate, "plan_narration", lambda plan, u, ps=None: {"text": f"Placed {len(plan['inventory'])} pieces."})
+    monkeypatch.setattr(narrate, "plan_narration", lambda plan, u, ps=None, **k: {"text": f"Placed {len(plan['inventory'])} pieces."})
     return seen
 
 
@@ -112,7 +112,7 @@ def test_the_agent_leads_a_blind_listener_to_a_furnished_home(offline):
     assert offline["search"]["profiles"] == ["blind"] and offline["search"]["budget"] == 1800 and offline["search"]["near"] == "Midtown"
     assert "Pitch for b1." in said[4] and "front door" in said[4]
     assert "36 inches wide" in said[5] and "furniture" in said[5]
-    assert "Placed 3 pieces." in said[6] and "Before you sign: Ask which floor" in said[6]
+    assert "Placed 3 pieces." in said[6] and "Before you sign, check the way in from the street" in said[6]     # casual closing
     assert st["guide"] == "done"
     assert not any(w in t.lower() for t in said for w in BANNED)
     kinds = [[a["type"] for a in r["ui_actions"]] for r in out]
@@ -167,9 +167,11 @@ def test_the_venue_answers_from_its_measurements(venue_stub):
     out, st = _talk(["How do I get from the entrance to the classroom in a wheelchair?", "How wide is the classroom door?", "Where are the stairs?", "How do I get here from the Dinky?"])
     said = [r["text"] for r in out]
     assert ("route", "entrance", "classroom") in venue_stub and "go straight about 2 meters" in said[0]
-    assert ("doors", "classroom") in venue_stub and "about 64 inches clear" in said[1] and "not yet checked against a tape measure" in said[1]
-    assert "Elevator: not in the scan; needs a site visit." in said[2]
-    assert ("outside", "dinky") in venue_stub and "about 19 minutes" in said[3] and "11 percent for 44 meters" in said[3]
+    # spoken like a friend: the verdict from the measurement, not the inches (ask for the details to get them)
+    assert ("doors", "classroom") in venue_stub and "wide enough for a wheelchair" in said[1] and "haven't checked it with a tape" in said[1]
+    assert "inches" not in said[1]
+    assert "I don't see an elevator in the scan" in said[2]
+    assert ("outside", "dinky") in venue_stub and "about a 19-minute roll" in said[3] and "steep bit" in said[3]
     assert any(a["type"] == "draw_route" for a in out[3]["ui_actions"]) and st["home"] == "princeton_rabinowitz"
     assert not any(w in t.lower() for t in said for w in BANNED)
 
@@ -236,7 +238,25 @@ def test_moving_one_piece_by_asking(offline, monkeypatch):
           "plan": {"placements": [{"label": "sofa", "room": "r0", "rect": [4, 1, 0.9, 2.1], "facing": [-1, 0]}], "score_after": 92}}
     r = dialogue.respond("what if I put the sofa against the left wall of the hall?", st, {"city": "houston", "profiles": ["wheelchair"], "channel": "voice"})
     assert seen["want"] == (0.0, 1.0)            # walking in from the west door facing east, the left wall is the north wall
-    assert "left wall of the living room" in r["text"] and "costs 7 points" in r["text"] and "about 30 inches clear" in r["text"]
+    assert "left wall of the living room" in r["text"] and "a bit harder for you" in r["text"] and "the way to the bedroom narrows" in r["text"]
     assert r["ui_actions"][0]["type"] == "open_unit" and r["ui_actions"][0]["tab"] == "plan"
     back = dialogue.respond("undo", r["state"], {"city": "houston", "profiles": ["wheelchair"], "channel": "voice"})
     assert back["text"].startswith("Okay, it's back") and back["state"]["plan"]["placements"][0]["rect"] == [4, 1, 0.9, 2.1]
+
+
+def test_casual_by_default_and_the_details_on_request(venue_stub):
+    out, st = _talk(["How wide is the classroom door?", "give me the details", "how wide is the classroom door?", "keep it simple"])
+    assert "inches" not in out[0]["text"] and "wide enough for a wheelchair" in out[0]["text"]
+    assert out[1]["text"].startswith("Okay, I'll give you the exact measurements") and out[1]["state"]["detail"]
+    assert "about 64 inches clear" in out[2]["text"]                  # the measured version once asked for
+    assert out[3]["text"] == "Okay, I'll keep it simple." and not st["detail"]
+
+
+def test_plain_words_for_measured_problems():
+    p = lambda kind, text, sev="high": {"kind": kind, "text": text, "severity": sev}  # noqa: E731
+    assert narrate.plain_problem(p("narrow_door", "Bathroom door: about 26 in clear; a wheelchair needs 32 in.")) == "the bathroom door is too narrow for a wheelchair"
+    assert narrate.plain_problem(p("narrow_door", "Bedroom door: about 31.4 in clear; a wheelchair needs 32 in.", "medium")) == "the bedroom door is a tight squeeze for a wheelchair"
+    assert narrate.plain_problem(p("no_turning_space", "No 60 in turning circle fits in this bathroom with the built-ins found in the 3D mesh.")) == \
+        "there isn't room to turn a wheelchair around in the bathroom"
+    assert narrate.plain_problem(p("unreachable_room", "A wheelchair can't reach this bedroom: it is on another floor, reached only by stairs.")) == \
+        "a wheelchair can't get into the bedroom, because it's on another floor"

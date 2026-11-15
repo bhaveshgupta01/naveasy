@@ -46,13 +46,14 @@ PLANNER = f"""You are NavEasy's lead broker. A client wants a home in Houston or
 Clients may use a wheelchair, be blind or have low vision, be deaf or hard of hearing, be older adults, or have no particular need.
 
 How you work:
-1. First call write_todos with a short plan (4 to 6 items) for this client.
+1. Your first action, before any task, is write_todos with a short plan (4 to 6 items) for this client. Update it as items finish.
 2. Delegate with the task tool, in this order:
    - building: shortlist homes for the client's needs, area and budget, and get building evidence for the best two (rent, elevator or walk-up, age, scanned units).
    - inside: for the best two homes, the measured inside of each home's best scanned unit (doorways, turning room, rooms reached, layout). Give it the model ids from the building report.
    - outside: for the best home, the routes to the two everyday places that matter most for this client (pharmacy, grocery, transit or hospital), with minutes, crossings and hard spots. For a move from an address, it matches neighborhoods instead.
    - checker: pass it every failing or worrying finding from the reports above, with the home, unit or route it came from, so it can re-run them.
-   Keep each task description self-contained: the subagent sees only what you write.
+   Keep each task description self-contained: the subagent sees only what you write. Always pass ids exactly as the reports give them
+   (building ids look like p9380874 or h215175829; model ids look like m3hCdjdsCRT), never addresses in their place.
 3. Then answer the client like a confident broker, in plain spoken sentences (no lists, tables, markdown or symbols; say "dollars", "inches", "minutes"): your pick and why, the runner-up, the rent, what was measured inside, the minutes to everyday places, the main weakness stated plainly, and what to verify before signing. Use the checker's verdicts: anything it marked "needs a site visit" must be said that way. Under 220 words.
 
 {RULES}"""
@@ -71,6 +72,7 @@ SUBAGENTS = {
     "outside": ("Checks the way outside the home with Vexcel imagery and heights, OpenStreetMap and Valhalla routing: minutes, crossings, slope "
                 "and hard spots to everyday places, or neighborhoods that match a current address.",
                 "You are the street scout. Call route_to for each place you are asked about (or match_neighborhoods for a move from an address). "
+                "building_id must be an id like p9380874 or h215175829, never an address; if you were given only an address, say so. "
                 "Report minutes, meters, crossings, the steepest slope, the stretches with no sidewalk record, and each hard spot. Facts only, briefly."),
     "checker": ("Re-runs failing or worrying findings to confirm their numbers, and marks anything it cannot reproduce as needing a site visit.",
                 "You are the checker. You get findings from other researchers, each with the home, unit or route it came from. For every finding "
@@ -166,6 +168,21 @@ def _tools(run: Run, who: str, emit: bool = True) -> list:
     return [every[n] for n in TOOLS_FOR[who]]
 
 
+def curate(actions: list) -> list:
+    """Subagents move the app many times; the client should end on one view: the shortlist on the map, the pick's
+    panel open, and its route drawn (the pick is the home the outside scout routed from)."""
+    first = lambda t: next((a for a in actions if a["type"] == t), None)  # noqa: E731
+    last = lambda t: next((a for a in reversed(actions) if a["type"] == t), None)  # noqa: E731
+    out = [a for a in (first("set_map_view"), first("highlight_buildings"), last("show_relocation")) if a]
+    route = last("show_route")
+    pick = (route or {}).get("building_id") or (first("open_building") or {}).get("id")
+    if pick:
+        out.append({"type": "open_building", "id": pick})
+    if route:
+        out.append(route)
+    return out
+
+
 def _text(content) -> str:
     if isinstance(content, str):
         return content
@@ -195,13 +212,18 @@ def run(text: str, context: dict) -> dict:
     msgs = history + [{"role": "user", "content": f"{text}\n\n(App state: {json.dumps(app)})"}]
     r.step("plan", "planner", "Planning the search")
     final = ""
+    planned = False
     for update in graph.stream({"messages": msgs}, stream_mode="updates", config={"recursion_limit": 60}):
         for node, val in (update or {}).items():
+            if isinstance(val, dict) and val.get("todos") and not planned:
+                planned = True
+                r.step("plan", "planner", "Plan: " + "; ".join((t.get("content") if isinstance(t, dict) else str(t)) for t in val["todos"]))
             for m in (val or {}).get("messages", []) if isinstance(val, dict) else []:
                 for tc in getattr(m, "tool_calls", None) or []:
-                    if tc["name"] == "write_todos":
+                    if tc["name"] == "write_todos" and not planned:
+                        planned = True
                         todos = tc["args"].get("todos") or []
-                        r.step("plan", "planner", "Plan: " + "; ".join(t.get("content", "") for t in todos))
+                        r.step("plan", "planner", "Plan: " + "; ".join((t.get("content") if isinstance(t, dict) else str(t)) for t in todos))
                     elif tc["name"] == "task":
                         who = tc["args"].get("subagent_type", "?")
                         r.step("subagent", who, (tc["args"].get("description") or "")[:300])
@@ -219,7 +241,7 @@ def run(text: str, context: dict) -> dict:
     secs = round(time.time() - t0)
     r.step("note", "planner", f"Planned answer in {secs} s.")
     r.state["history"] = (history + [{"role": "user", "content": text}, {"role": "assistant", "content": final}])[-12:]
-    out = {"text": final, "ui_actions": r.actions, "state": r.state, "steps": list(r.steps), "mode": "deep"}
+    out = {"text": final, "ui_actions": curate(r.actions), "state": r.state, "steps": list(r.steps), "mode": "deep"}
     try:
         CACHE.mkdir(parents=True, exist_ok=True)
         cached.write_text(json.dumps({"question": text, "context": app, "at": time.strftime("%Y-%m-%d %H:%M"), "seconds": secs, **out}, default=str))

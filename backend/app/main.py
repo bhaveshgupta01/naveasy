@@ -561,7 +561,8 @@ def voice_token():
         "uses": 1, "expireTime": (now + dt.timedelta(minutes=30)).isoformat(), "newSessionExpireTime": (now + dt.timedelta(minutes=1)).isoformat()})
     if r.status_code != 200:
         raise HTTPException(502, f"token service said {r.status_code}: {r.text[:200]}")
-    return {"token": r.json().get("name"), "model": os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")}
+    # checked Nov 14: gemini-3.8-live answers over the v1alpha Live endpoint (v1beta returns 404 for it)
+    return {"token": r.json().get("name"), "model": os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live"), "api_version": "v1alpha"}
 
 
 def nearest_buildings(lat: float, lon: float, km: float, city: str) -> list[dict]:

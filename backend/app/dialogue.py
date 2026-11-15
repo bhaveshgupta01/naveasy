@@ -180,7 +180,9 @@ def _name_index() -> list:
         keys = []
         for b in api.buildings().values():
             street = b.get("address", "").split(",")[0]
-            for k in {_norm(b["name"]), _norm(street)}:
+            name = _norm(b["name"])
+            short = re.sub(r"^the |\s+(?:apartment homes|apartments|apts|apartment|residences|homes|condominiums|condos|townhomes|lofts)$", "", name).strip()
+            for k in {name, short, _norm(street)}:
                 if len(k) >= 7 and not k.isdigit():
                     keys.append((k, b["id"], b["city"]))
                     parts = k.split()
@@ -748,8 +750,13 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
         actions.append({"type": "open_building", "id": st["home"]})
         actions.append({"type": "set_map_view", "center": [b["lon"], b["lat"]], "zoom": 17.2})
         actions.append({"type": "highlight_buildings", "ids": [st["home"]]})
-        drone = " It has a drone model: say show me the outside, or zoom in on it." if any(u.get("splat") for u in b["units"]) else ""
-        return done(narrate.home_reason(b, ps) + drone + " Ask what it is like inside, or for a route to the pharmacy, a clinic, the bus, or a grocery.")
+        drone = " It has a drone model: say show me the outside." if any(u.get("splat") for u in b["units"]) else ""
+        text, uid = _pitch(st)
+        st["unit"] = uid
+        if uid and st.get("guide") in (None, "done", "pick"):
+            st["guide"] = "tour"           # the same broker's next step: offer to walk them through it
+            return done(text + drone + " Shall I walk you through it, starting at the front door?")
+        return done(text + drone + " Ask what it is like inside, or for a route to the pharmacy, a clinic, the bus, or a grocery.")
 
     # ---- a question: answer from what is on screen and in the conversation
     if intent in ("question", "chitchat", "about_home", "neighborhood", None) and not (intent == "find_homes"):

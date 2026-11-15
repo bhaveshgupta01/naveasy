@@ -629,8 +629,10 @@ Findings from building against the live services. Where these differ from the se
 | Map | 2D heat map | Vexcel aerial tiles as the base map, Vexcel surface heights as 3D terrain past zoom 15 |
 | Outside of the home | Vexcel obliques | Obliques, a 3D block from surface heights, and Matterport's aerial Gaussian splat for the 230 homes that have one |
 | Transit stops | OpenStreetMap, GTFS planned | Houston METRO (8,803 stops) and LA Metro (12,354) GTFS feeds are in |
-| Agent | LangChain deepagents | Anthropic SDK tool loop with a rule-based fallback; not yet run with a key |
+| Agent | LangChain deepagents | Three paths behind one entry point: local (voice, the agent-led conversation), a Claude tool loop (`claude-opus-5-5`, effort low) for typed questions, and deepagents 0.7 (planner with `TodoListMiddleware`, which 0.7 no longer adds itself, plus building, inside, outside and checker subagents) for multi-step searches. Numbers in every Claude answer are matched against the tool results |
 | Storage | DuckDB | JSON files in `data/`, loaded in memory |
+| Voice | Gemini Live first | Local Whisper and Piper by default, with a speak button the agent drives; Gemini Live optional as ears and mouth only (it reads our tool's answer word for word) |
+| Fixtures | Templates | Each built-in measured from the mesh (width, depth, height); counter height checked against 34 in, reported but not weighted |
 
 Coverage in the data: 13,771 scans, of which 6,551 carry a wall graph; 6,742 have a furniture-removed view; 232 have an aerial splat.
 

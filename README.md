@@ -36,6 +36,7 @@ thresholds, turning room) from Matterport's wall graph, then connect it to the b
 | Spoken home descriptions | Working: layout from the entry door, room sizes, window directions and sun (from Matterport's compass alignment), doorways, problems (`backend/app/narrate.py`) | |
 | Agent | Working, three paths behind one entry point (`POST /agent/chat`): voice and the guided conversation run locally; typed multi-step home searches run as a planned LangChain deepagents run (a planner with a to-do list and four subagents: building from CoStar, inside from Matterport, outside from Vexcel and routes, and a checker that re-runs failing findings and marks the rest "needs a site visit"); other typed questions go to one Claude agent (`claude-opus-5-5`) with seven tools. The chat shows the plan, each subagent's task and every tool call, live and under the answer, and every number in an answer is matched against the tool results | Single agent about 12 s; planned run about 85 s live (the three demo requests are cached: `python scripts/cache_deep_runs.py`); `NAVEASY_DEEP=off` turns the planned mode off |
 | Gemini Live | Token endpoint works; a Live session with `gemini-3.8-live` (v1alpha) answered in 0.7 s from Python. Not wired into the browser; local speech stays the default (`docs/VOICE.md`) | `GEMINI_API_KEY` (or `Gemini`) |
+| The building we are standing in (Princeton) | Working from the scan, **not yet checked with a tape**: the HackPrinceton venue (Julis Romo Rabinowitz Building, scans `P3S6VUTP3qB` and `R1FX6EmdcDt`) opens as a public building (city button "Princeton"): heat map per floor, door and corridor widths, stairs and a raised floor part from the 3D mesh, gaps too narrow to be doors set aside, the way from the entrance to the classroom, and the walk from Princeton station or Lot 10 with slope from Vexcel heights. Ask by voice or chat: "how do I get to the classroom", "how wide is the classroom door", "where are the stairs", "how do I get here from the Dinky". Every number says whether a tape has checked it (`docs/GROUND_TRUTH.md`, `ground_truth/princeton.json`) | Matterport's own location is right; the Vexcel parcel point is about 300 m east (other buildings) |
 
 Built-ins (counters, kitchen islands, vanities, toilets, tubs) and the stairs themselves come from Matterport's 3D mesh, fetched
 the first time a home is opened (`python -m pipeline.fixtures <model_id>`; `python -m pipeline.score_units --meshes` rescores the
@@ -65,6 +66,7 @@ Known gaps: building approach (entrance steps, parking) is not checked yet; LA h
 | `pipeline/relocate.py` | Relocation match (between cities or within one) |
 | `pipeline/terrain.py` | Vexcel surface heights as terrain tiles; ground height and slope along a route |
 | `pipeline/fixtures.py` | Built-ins (counters, islands, toilets, tubs) and stairs from Matterport's 3D mesh |
+| `pipeline/venue.py` | The venue as a public building: entrances, corridors, doors, stairs, routes inside and out, tape-measure evidence |
 | `pipeline/furnished_scan.py` | Finds which scans are furnished (cheap two-panorama check) |
 | `tests/` | Engine and scoring tests on a hand-built plan: `python -m pytest tests` |
 | `pipeline/splat.py` | Crops Matterport's aerial Gaussian splat to the home and its lot |
@@ -110,7 +112,7 @@ python scripts/prewarm_3d.py <lat> <lon> <km>   # optional: pre-load 3D tiles fo
 python -m pytest tests                       # under two seconds, no network
 ```
 
-Useful demo links: `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),
+Useful demo links: `?city=princeton&home=princeton_rabinowitz` (the venue), `?unit=P3S6VUTP3qB` (its floor plan), `?voice=gemini` (Gemini voice), `?needs=wheelchair&unit=5d9pvDHZMhC` (narrow bathroom door), `?unit=yQsPwmzZscg&tab=plan` (furnishing plan),
 `?unit=yBnqSBNHtTb&tab=score` (furniture found in a scan), `?home=p9180689&route=pharmacy` (route), `?panel=move` (relocation),
 `?home=p9180689&outside=1` (orbit the building in 3D), `?home=h238672879&outside=1` (drone splat),
 `?unit=5d9pvDHZMhC&tab=tour` (zone alerts in the 3D tour: walk to the bathroom door), `?unit=TAJdsi5EGmq&tab=tour&needs=blind` (furnished home, blind).

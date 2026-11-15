@@ -33,6 +33,7 @@ from . import agent
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / "data" / "agent_cache"
 MODEL = os.getenv("NAVEASY_DEEP_MODEL", "claude-opus-5-5")
+GEMINI_MODEL = os.getenv("NAVEASY_GEMINI_MODEL", "gemini-3.8-flash")
 Need = Literal["wheelchair", "blind", "deaf", "older"]
 Place = Literal["hospital", "clinic", "pharmacy", "grocery", "transit", "restaurant", "school", "park"]
 
@@ -81,7 +82,32 @@ SUBAGENTS = {
                 "why (the re-run disagrees, the confidence is low, the data is missing or estimated, or the scan can't measure it). Never add new facts."),
 }
 TOOLS_FOR = {"building": ("find_homes", "describe_home"), "inside": ("check_apartment", "describe_layout", "plan_furniture"),
-             "outside": ("route_to", "match_neighborhoods"), "checker": ("check_apartment", "route_to", "describe_home")}
+             "outside": ("route_to", "match_neighborhoods"), "checker": ("check_apartment", "route_to", "describe_home"),
+             "agent": ("find_homes", "describe_home", "check_apartment", "describe_layout", "route_to", "match_neighborhoods", "plan_furniture", "venue")}
+
+
+def provider() -> str | None:
+    """Which model answers: Claude while it can, else Gemini (NAVEASY_LLM=claude or gemini forces one). None: neither."""
+    want = os.getenv("NAVEASY_LLM", "auto").lower()
+    claude_ok = bool(os.getenv("ANTHROPIC_API_KEY")) and not agent.claude_down()
+    gemini_ok = bool(os.getenv("GEMINI_API_KEY"))
+    if want == "gemini":
+        return "gemini" if gemini_ok else None
+    if want == "claude":
+        return "claude" if claude_ok else None
+    return "claude" if claude_ok else "gemini" if gemini_ok else None
+
+
+def _llm(prov: str):
+    if prov == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=os.environ["GEMINI_API_KEY"], max_output_tokens=6000, timeout=120, max_retries=2)
+    from langchain_anthropic import ChatAnthropic
+    return ChatAnthropic(model=MODEL, max_tokens=6000, output_config={"effort": "low"}, timeout=120, max_retries=2)
+
+
+def model_name(prov: str) -> str:
+    return GEMINI_MODEL if prov == "gemini" else MODEL
 
 
 def enabled() -> bool:
@@ -89,10 +115,9 @@ def enabled() -> bool:
         return False
     try:
         import deepagents  # noqa: F401
-        import langchain_anthropic  # noqa: F401
     except ImportError:
         return False
-    return bool(os.getenv("ANTHROPIC_API_KEY"))
+    return provider() is not None
 
 
 def wants_plan(text: str, st: dict) -> bool:
@@ -164,7 +189,12 @@ def _tools(run: Run, who: str, emit: bool = True) -> list:
         """Place the client's furniture in a scanned unit so every room stays reachable: placements, where each piece goes, the score before and after, pieces that won't fit."""
         return call("plan_furniture", {"target_model_id": target_model_id, "profiles": profiles, "pieces": pieces})
 
-    every = {f.__name__: f for f in (find_homes, describe_home, check_apartment, describe_layout, route_to, match_neighborhoods, plan_furniture)}
+    def venue(ask: Literal["summary", "inside_route", "doors", "stairs", "outside_route"], to_place: str | None = None, near: str | None = None,
+              origin: Literal["dinky", "parking"] | None = None, profile: Need | None = None) -> str:
+        """The HackPrinceton venue (the Julis Romo Rabinowitz Building, Princeton), measured from its 3D scan: summary, the way from the entrance to a room (classroom, landing, stairs), door widths, stairs and level changes, or the walk from Princeton station (dinky) or the nearest parking. Each number says whether a tape measure has checked it."""
+        return call("venue", {"ask": ask, "to_place": to_place, "near": near, "origin": origin, "profile": profile})
+
+    every = {f.__name__: f for f in (find_homes, describe_home, check_apartment, describe_layout, route_to, match_neighborhoods, plan_furniture, venue)}
     return [every[n] for n in TOOLS_FOR[who]]
 
 
@@ -204,11 +234,14 @@ def run(text: str, context: dict) -> dict:
     if cached.exists() and os.getenv("NAVEASY_DEEP_CACHE", "on").lower() not in ("off", "0", "false"):
         return _replay(json.loads(cached.read_text()), context)
     from deepagents import create_deep_agent
-    from langchain_anthropic import ChatAnthropic
 
+    prov = provider()
+    if not prov:
+        raise RuntimeError("no model available (no Claude credit and no Gemini key)")
     r = Run(context)
     t0 = time.time()
-    model = ChatAnthropic(model=MODEL, max_tokens=6000, output_config={"effort": "low"}, timeout=120, max_retries=2)
+    model = _llm(prov)
+    r.step("note", "planner", f"Model: {model_name(prov)}")
     subagents = [{"name": name, "description": desc, "system_prompt": prompt + "\n\n" + RULES, "tools": _tools(r, name, emit=name != "checker"), "model": model}
                  for name, (desc, prompt) in SUBAGENTS.items()]
     from langchain.agents.middleware import TodoListMiddleware     # deepagents 0.7 no longer adds write_todos by itself
@@ -249,13 +282,40 @@ def run(text: str, context: dict) -> dict:
     secs = round(time.time() - t0)
     r.step("note", "planner", f"Planned answer in {secs} s.")
     r.state["history"] = (history + [{"role": "user", "content": text}, {"role": "assistant", "content": final}])[-12:]
-    out = {"text": final, "ui_actions": curate(r.actions), "state": r.state, "steps": list(r.steps), "mode": "deep"}
+    out = {"text": final, "ui_actions": curate(r.actions), "state": r.state, "steps": list(r.steps), "mode": "deep", "model": model_name(prov)}
     try:
         CACHE.mkdir(parents=True, exist_ok=True)
         cached.write_text(json.dumps({"question": text, "context": app, "at": time.strftime("%Y-%m-%d %H:%M"), "seconds": secs, **out}, default=str))
     except OSError:
         pass
     return out
+
+
+def single(text: str, context: dict) -> dict:
+    """One tool-calling agent on Gemini (used when Claude can't answer): the same tools, rules and checks as agent.claude()."""
+    from langchain.agents import create_agent
+    prov = "gemini"
+    r = Run(context)
+    graph = create_agent(_llm(prov), tools=_tools(r, "agent"), system_prompt=agent.SYSTEM)
+    history = [m for m in r.state.get("history", []) if m.get("role") in ("user", "assistant") and m.get("content")][-12:]
+    app = {k: context[k] for k in ("city", "profiles", "screen") if context.get(k)}
+    msgs = history + [{"role": "user", "content": f"{text}\n\n(App state: {json.dumps(app, default=str)[:3000]})"}]
+    final = ""
+    for update in graph.stream({"messages": msgs}, stream_mode="updates", config={"recursion_limit": 30}):
+        for _node, val in (update or {}).items():
+            for m in (val or {}).get("messages", []) if isinstance(val, dict) else []:
+                if getattr(m, "type", "") == "ai" and not getattr(m, "tool_calls", None):
+                    t = _text(m.content).strip()
+                    if t:
+                        final = t
+    final = agent.guard(final or "I couldn't put an answer together. Please ask again.")
+    if r.evidence:
+        aud = agent.audit_numbers(final, r.evidence)
+        r.step("check", "agent", f"{aud['numbers']} numbers in the answer checked against the tool results"
+               + (": all found." if not aud["unsupported"] else f"; not found in any result: {', '.join(aud['unsupported'][:6])}."),
+               "ok" if not aud["unsupported"] else "warn")
+    r.state["history"] = (history + [{"role": "user", "content": text}, {"role": "assistant", "content": final}])[-12:]
+    return {"text": final, "ui_actions": r.actions, "state": r.state, "steps": list(r.steps), "mode": "gemini", "model": GEMINI_MODEL}
 
 
 def _replay(saved: dict, context: dict) -> dict:

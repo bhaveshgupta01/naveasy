@@ -18,7 +18,7 @@ interface Props {
 const WHO: Record<string, string> = {
   planner: 'Planner', building: 'Building · CoStar', inside: 'Inside · Matterport', outside: 'Outside · Vexcel, OSM, Valhalla', checker: 'Checker', agent: 'Agent',
 }
-const MODE: Record<string, string> = { deep: 'Planned with LangChain deepagents', claude: 'Claude agent with tools', local: 'Local, on this machine' }
+const MODE: Record<string, string> = { deep: 'Planned with LangChain deepagents', claude: 'Claude agent with tools', gemini: 'Gemini agent with tools', local: 'Local, on this machine' }
 
 // The agent's work, shown under its answer: the plan, each subagent's task, every tool call, the checks.
 function Steps({ steps, mode, open }: { steps: AgentStep[]; mode?: string; open?: boolean }) {

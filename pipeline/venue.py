@@ -56,22 +56,10 @@ STAIR_START, STAIR_TOP, STAIR_RISE, MIN_STAIR_CELLS = 0.2, 1.6, 1.0, 800
 LIMITS = "ADA 2010: 32 in clear at a door (404.2.3), 36 in along a route (403.5.1), a 60 in turning circle (304.3.1)."
 SITE_VISIT = "needs a site visit"
 
-# Vexcel only answers inside these boxes for our key (west, south, east, north), per the organizers on Nov 14.
-VEXCEL_BOXES = {
-    "princeton": (-74.6943, 40.3157, -74.5981, 40.3714),
-    "la": (-119.0134, 33.0945, -116.8949, 34.3154),
-    "houston": (-96.2185, 29.0173, -94.5758, 30.3804),
-    "northern_california": (-124.7437, 38.0655, -118.9869, 41.9596),
-    "gulf_coast": (-88.33, 29.50, -84.80, 30.80),
-}
-
-
 def vexcel_region(lat: float, lon: float) -> str | None:
-    """Which allowed Vexcel region a point is in, or None. Check before any Vexcel call: outside, it is refused."""
-    for name, (w, s, e, n) in VEXCEL_BOXES.items():
-        if w <= lon <= e and s <= lat <= n:
-            return name
-    return None
+    """Which allowed Vexcel region a point is in, or None (the Vexcel client also checks this before every call)."""
+    from .clients.vexcel import region
+    return region(lat, lon)
 
 
 def _in(m: float) -> str:
@@ -595,12 +583,18 @@ def analyze_public(plan: Plan, layers: bool = True) -> dict:
 
     # routes from the entrance to each named room
     targets = [(k, p) for k, p in pl.items() if p["kind"] in ("room",)]
+    drawn = set()
     for k, p in targets:
         r = inside_route("entrance", k, "wheelchair", plan.model_id)
         for leg in r.get("legs", []):
-            if leg.get("points"):
-                out["paths"].append({"from": "entrance" if leg is r["legs"][0] else leg.get("from", "landing"), "to": k, "floor": leg["floor"], "meters": leg["meters"],
-                                     "turns": leg["turns"], "points": leg["points"], "narrowest_in": round(leg["narrowest_m"] / 0.0254)})
+            if not leg.get("points"):
+                continue
+            key = (leg["floor"], tuple(leg["points"][0]), tuple(leg["points"][-1]))
+            if key in drawn:
+                continue            # the same way to the stairs serves every room upstairs: draw it once
+            drawn.add(key)
+            out["paths"].append({"from": leg.get("from") or "entrance", "to": "stairs" if leg.get("to") else k, "floor": leg["floor"], "meters": leg["meters"],
+                                 "turns": leg["turns"], "points": leg["points"], "narrowest_in": round(leg["narrowest_m"] / 0.0254)})
     # turning room in the rooms people go to
     turn_ok = []
     for f in walked:
@@ -789,8 +783,19 @@ def venue_summary(model_id: str = PRIMARY) -> dict:
             "legend": LEGENDS["wheelchair"]}
 
 
-def building_record() -> dict:
-    """The venue as a row of the building table (the shape main.buildings() serves), so the app can open it."""
+def building_record(cached: bool = True) -> dict:
+    """The venue as a row of the building table (the shape main.buildings() serves), so the app can open it.
+    Cached in data/venue/building.json (rebuilt by `python -m pipeline.venue`), so the map doesn't wait 3 s for it."""
+    path = DATA / "venue" / "building.json"
+    if cached and path.exists():
+        return json.loads(path.read_text())
+    out = _building_record()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out))
+    return out
+
+
+def _building_record() -> dict:
     import h3
     plan = venue_plan(PRIMARY)
     res = analyze_public(plan, layers=False)
@@ -814,17 +819,27 @@ def building_record() -> dict:
             "scores": res["scores"], "building_scores": res["scores"], "score_note": res["score_note"],
             "inside": {"units_measured": len(units), **{p: {"best": res["scores"][p]["score"], "best_model": PRIMARY, "share_pass": 1.0 if res["scores"][p]["score"] >= 75 else 0.0,
                                                             "confidence": res["scores"][p]["confidence"]} for p in PROFILES}},
+            "checklist": [
+                "Ask whether an elevator joins the scanned floors; the scan shows only stairs between them.",
+                "Find which doors are step-free entrances; the scan doesn't say which doors face the street.",
+                "On the upper floor, look at where the raised part (about 14 cm higher) meets the rest: step or ramp?",
+                "Measure the doors listed in docs/GROUND_TRUTH.md with a tape measure, door open at 90 degrees.",
+                "We did not check: restrooms, door hardware and opening force, signage, visual or audible alarms, the outside approach.",
+            ],
             "units": units}
 
 
 # ---------------------------------------------------------------- outside: from the station or parking to the door
 
 OUTSIDE_ORIGINS = {
-    # OpenStreetMap: Princeton station ("the Dinky"), and the Lot 21 garage / the Fine Hall lot area west of Washington Road
-    "princeton station": (40.34322, -74.65987, "Princeton station (the Dinky)"),
-    "dinky": (40.34322, -74.65987, "Princeton station (the Dinky)"),
-    "parking": (40.34601, -74.65215, "the parking area on the east side of Washington Road"),
-    "nassau hall": (40.34871, -74.65930, "Nassau Hall"),
+    # all from OpenStreetMap on Nov 14: station node 7070825320, parking ways 428102452 (Lot 10) and 27341847
+    "princeton station": (40.3421376, -74.6588346, "Princeton station (the Dinky)"),
+    "dinky": (40.3421376, -74.6588346, "Princeton station (the Dinky)"),
+    "train station": (40.3421376, -74.6588346, "Princeton station (the Dinky)"),
+    "parking": (40.3501913, -74.6551056, "Lot 10, the nearest parking lot in OpenStreetMap"),
+    "lot 10": (40.3501913, -74.6551056, "Lot 10"),
+    "spring street garage": (40.3514665, -74.6595466, "the Spring Street Garage"),
+    "garage": (40.3514665, -74.6595466, "the Spring Street Garage"),
 }
 
 
@@ -846,6 +861,7 @@ def outside_route(origin_name: str = "princeton station", profile: str = "wheelc
 if __name__ == "__main__":
     import sys
     mid = sys.argv[1] if len(sys.argv) > 1 else PRIMARY
+    building_record(cached=False)
     s = venue_summary(mid)
     print(json.dumps({k: v for k, v in s.items() if k not in ("stairs",)}, indent=1, default=str))
     print(json.dumps(stairs(mid), indent=1, default=str))

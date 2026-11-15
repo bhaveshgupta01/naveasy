@@ -202,6 +202,287 @@ def find_named(text: str, city: str | None = None) -> str | None:
     return next((bid for _k, bid, c in top if c == city), top[0][1])
 
 
+# ---------------------------------------------------------------- the guided conversation (the agent leads)
+
+GUIDE_START = "__start__"
+GUIDE_STAGES = ("needs", "budget", "area", "pick", "tour", "furniture")
+ALL_NEEDS = ["wheelchair", "blind", "deaf", "older"]
+GREETING = ("Hi, I'm NavEasy. I'll help you find a home in Houston or Los Angeles and walk you through it, room by room. "
+            "First, what help do you need at home? For example: you use a wheelchair, you're blind or have low vision, "
+            "you're deaf or hard of hearing, or you're an older adult. Or say none.")
+YES = r"^\W*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please|go ahead|do it|of course|sounds good|alright|why not|let'?s do it|definitely)\b"
+NO = r"^\W*(?:no|nope|nah|not now|skip|no thanks|don'?t|never ?mind|i'?m (?:good|fine))\b"
+NO_NEEDS = r"\b(?:none|no(?: special)? needs?|nothing|i'?m fine|just looking|no disabilit\w*|not really|no help|nobody|doesn'?t apply)\b|^\W*no\W*$"
+NO_BUDGET = r"\b(?:no budget|any(?: price| budget)?|doesn'?t matter|not sure|no limit|whatever|flexible|no max\w*|don'?t know)\b"
+ANYWHERE = r"\b(?:anywhere|whole city|any ?where|doesn'?t matter|no preference|all over|not sure|don'?t mind|any area|surprise me)\b"
+ADDRESS = (r"\b\d{1,6}\s+(?:[nsew]\.?\s+)?[a-z0-9.' -]+?\s(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|way|pl|place|ct|court|pkwy|parkway|hwy|highway)\b"
+           r"[^.;!?]*")
+SAY_NUM = {"one": 1, "a": 1, "an": 1, "two": 2, "three": 3, "four": 4, "a pair of": 2, "pair of": 2}
+FURNITURE = [  # (pattern, planner label); longer names first so "queen bed" isn't also a "bed"
+    (r"king(?:[- ]size(?:d)?)? beds?", "king bed"), (r"queen(?:[- ]size(?:d)?)? beds?", "queen bed"),
+    (r"(?:full|double)(?:[- ]size(?:d)?)? beds?", "full bed"), (r"(?:twin|single)(?:[- ]size(?:d)?)? beds?", "twin bed"),
+    (r"night ?stands?|bedside tables?", "nightstand"), (r"dressers?|chests? of drawers", "dresser"), (r"wardrobes?|armoires?", "wardrobe"),
+    (r"sectionals?(?: sofa| couch)?", "sectional"), (r"love ?seats?", "loveseat"), (r"sofas?|couch(?:es)?", "sofa"),
+    (r"arm ?chairs?|recliners?|accent chairs?|easy chairs?", "armchair"), (r"coffee tables?", "coffee table"),
+    (r"tv stands?|tv|television|entertainment (?:center|unit)", "tv stand"), (r"book ?(?:shelf|shelves|cases?)|shelving units?", "bookshelf"),
+    (r"pianos?", "piano"), (r"desks?", "desk"), (r"(?:dining |kitchen )?tables?", "dining table"), (r"\bbeds?\b", "queen bed"),
+]
+
+
+def parse_furniture(text: str) -> list[str]:
+    """The pieces someone says they own ("a queen bed, two nightstands and a couch") as planner labels, with repeats."""
+    low = " " + re.sub(r"[^a-z0-9' ]", " ", text.lower()) + " "
+    out: list[tuple[int, str]] = []
+    for rx, label in FURNITURE:
+        for m in list(re.finditer(rf"(?:\b(\d|one|two|three|four|a pair of|pair of|an?)\s+)?(?:\w+\s+)?\b(?:{rx})(?=\W)", low)):
+            word = (m.group(1) or "one").strip()
+            n = int(word) if word.isdigit() else SAY_NUM.get(word, 1)
+            out += [(m.start(), label)] * max(1, min(n, 4))
+            low = low[:m.start()] + " " * (m.end() - m.start()) + low[m.end():]   # used up
+    return [label for _pos, label in sorted(out, key=lambda t: t[0])]
+
+
+def _words_number(low: str) -> int | None:
+    """A budget said as words or bare digits: "two thousand", "1800", "two point five k"."""
+    m = re.search(r"\b(\d{1,2}(?:[.,]\d)?)\s*(?:k|thousand|grand)\b", low)
+    if m:
+        return int(float(m.group(1).replace(",", ".")) * 1000)
+    m = re.search(r"\b(\d[\d,]{2,5})\b", low)
+    if m:
+        return int(m.group(1).replace(",", ""))
+    units = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9}
+    m = re.search(r"\b(one|two|three|four|five|six|seven|eight|nine)\s+thousand(?:\s+(?:and\s+)?(one|two|three|four|five|six|seven|eight|nine)\s+hundred)?", low)
+    if m:
+        return units[m.group(1)] * 1000 + (units[m.group(2)] * 100 if m.group(2) else 0)
+    m = re.search(r"\b(one|two|three|four|five|six|seven|eight|nine)\s+hundred\b", low)
+    if m:
+        return units[m.group(1)] * 100
+    return None
+
+
+def _needs_words(st: dict) -> str:
+    return "no special needs" if st.get("general") else " and ".join(NEED_NAME[p] for p in st["profiles"])
+
+
+def _fill(t: str, low: str, cmd: dict, st: dict) -> list[str]:
+    """Take whatever the person said that answers the guide's questions, in any order. Returns what was learned."""
+    got = []
+    stage = st.get("guide")
+    if cmd.get("needs"):
+        st["profiles"], st["general"], st["needs_known"] = cmd["needs"], False, True
+        got.append(_needs_words(st))
+    elif stage == "needs" and re.search(NO_NEEDS, low):
+        st["profiles"], st["general"], st["needs_known"] = list(ALL_NEEDS), True, True
+        got.append("no special needs")
+    budget = cmd.get("max_rent") or (_words_number(low) if stage == "budget" else None)
+    if budget and budget >= 300:
+        st["budget"], st["budget_known"] = budget, True
+        got.append(f"up to {budget:,} dollars a month")
+    elif stage == "budget" and re.search(NO_BUDGET, low):
+        st.pop("budget", None)
+        st["budget_known"] = True
+        got.append("any budget")
+    addr = cmd.get("from_address") or (re.search(ADDRESS, low) and t[re.search(ADDRESS, low).start():].strip(" .;!?"))
+    rest = low.replace(addr.lower(), " ") if addr else low      # a city named inside an address isn't where they want to live
+    if cmd.get("city") and re.search(r"los angeles|\bl\.?a\.?\b|houston", rest):
+        st["city"], st["city_said"] = cmd["city"], True
+    if addr and (stage == "area" or re.search(r"\blive|\bliving|moving|current|now\b", low)):
+        st["origin"], st["area_known"] = addr, True
+        st.pop("near", None)
+        got.append(f"somewhere like {addr}")
+    elif cmd.get("near_place"):
+        place = cmd["near_place"]
+        place = place.title() if place == place.lower() else place
+        st["near"], st["area_known"] = place, True
+        st.pop("origin", None)
+        got.append(f"near {place}")
+    elif stage == "area" and (re.search(ANYWHERE, low) or (cmd.get("city") and len(low.split()) <= 4)):
+        st.pop("near", None)
+        st.pop("origin", None)
+        st["area_known"] = True
+        got.append("anywhere in " + ("Houston" if st["city"] == "houston" else "Los Angeles"))
+    return got
+
+
+def _center(place: str, st: dict):
+    from . import agent
+    from . import main as api
+    c = agent.PLACES.get(place.lower().strip())
+    if not c:
+        bid = find_named(place, st["city"])
+        if bid:
+            bb = api.buildings()[bid]
+            c = (bb["lat"], bb["lon"])
+    if not c:
+        from pipeline.relocate import geocode
+        g = geocode(place + (", Houston, TX" if st["city"] == "houston" else ", Los Angeles, CA"))
+        c = (g["lat"], g["lon"]) if g else None
+    return c
+
+
+def _search(st: dict, actions: list) -> tuple[list[dict], int, str]:
+    """Homes for the guide's answers: (homes, how many matched, a lead-in sentence)."""
+    from . import main as api
+    ps = st["profiles"]
+    if st.get("origin"):
+        from pipeline import relocate as RL
+        r = RL.match({"address": st["origin"]}, ps, None, st.get("budget"), st["city"] if st.get("city_said") else None)
+        if r.get("error") or not r.get("candidates"):
+            return [], 0, r.get("error") or r.get("message") or "I found no neighborhood like it."
+        st["city"] = r.get("target") or st["city"]
+        bs = api.buildings()
+        homes = []
+        for c in r["candidates"]:
+            for h in c["homes"][:2]:
+                b = bs.get(h["id"])
+                if b and not any(x["id"] == b["id"] for x in homes):
+                    homes.append({"id": b["id"], "name": f"{b['name']} in {c['name']}", "score": h["score"], "rent": b.get("rent_min"),
+                                  "inside": bool(b.get("inside")), "lat": b["lat"], "lon": b["lon"]})
+        homes.sort(key=lambda h: -h["score"])
+        actions.append({"type": "show_relocation", "request": {"origin": {"address": st["origin"]}, "profiles": ps, "budget": st.get("budget"), "must_haves": []}})
+        lead = (f"I compared how close everyday places are to where you live now. These {r['target_name']} neighborhoods come closest: "
+                + narrate._join([f"{c['name']}, match {c['match']}" for c in r["candidates"][:3]]) + ". ")
+        return homes, len(homes), lead
+    center = _center(st["near"], st) if st.get("near") else None
+    homes, notes = _rank(st, ps, center, 3.0)
+    lead = (" ".join(notes) + " ") if notes else ""
+    if st.get("near") and not center:
+        lead = f"I couldn't find {st['near']} on the map, so I searched the whole city. " + lead
+    return homes, (homes[0]["n"] if homes else 0), lead
+
+
+def _pitch(st: dict) -> tuple[str, str | None]:
+    """The broker's summary of the current home, and the unit it describes."""
+    from . import main as api
+    ps = st["profiles"]
+    b = api.building(st["home"], ",".join(ps), "avg" if st.get("general") else "min")
+    uid = _best_unit(st["home"], ps)
+    u = None
+    if uid:
+        try:
+            u = api.unit_heatmap(uid, ps[0])
+            u = u if u.get("has_graph") else None
+        except Exception:  # noqa: BLE001
+            u = None
+    return narrate.broker_pitch(b, u, ps, st.get("general", False)), (uid if u else None)
+
+
+def _pick_guided(low: str, cmd: dict, st: dict) -> str | None:
+    home = _pick_home(cmd, low, st)
+    homes = st.get("homes") or []
+    if not home and len(low.split()) <= 5:
+        m = re.search(r"\b(one|two|three|four|five)\b", low)
+        i = {"one": 0, "two": 1, "three": 2, "four": 3, "five": 4}[m.group(1)] if m else None
+        if i is not None and i < len(homes):
+            home = homes[i]["id"]
+    return home
+
+
+def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
+    """One step of the conversation the agent leads. Returns what to say, or None to let the ordinary handlers answer."""
+    stage = st["guide"]
+    if stage in ("needs", "budget", "area"):
+        got = _fill(t, low, cmd, st)
+        if not got and cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") and not re.search(YES + "|" + NO, low):
+            return None                                              # a question of its own: answer it, keep the place in the guide
+        ack = ("Okay: " + ", ".join(got) + ". ") if got else ""
+        if not st.get("needs_known"):
+            return ack + ("Sorry, I didn't catch that. " if not got else "") + "What help do you need at home? Say wheelchair, blind or low vision, deaf or hard of hearing, older adult, or none."
+        if not st.get("budget_known"):
+            st["guide"] = "budget"
+            return ack + "What's your monthly budget for rent? Say a number, or say any."
+        if not st.get("area_known"):
+            st["guide"] = "area"
+            return (ack + "And where? Name a neighborhood or a place you need to be near, like the Medical Center or Midtown. "
+                    "Or, if you want somewhere like where you live now, tell me your current address.")
+        homes, n, lead = _search(st, actions)
+        if not homes:
+            st["guide"], st["area_known"] = "area", False
+            return ack + lead + " " + ("I found no homes for that. Try a wider area, or a higher budget: say anywhere, or a new budget.")
+        st["homes"] = [{"id": h["id"], "name": h["name"], "score": h["score"]} for h in homes[:5]]
+        st["home"], st["unit"], st["guide"] = None, None, "pick"
+        top = homes[:3]
+        actions.append({"type": "set_map_view", "center": [sum(h["lon"] for h in top) / len(top), sum(h["lat"] for h in top) / len(top)],
+                        "zoom": 13.2, "profiles": st["profiles"], "city": st["city"]})
+        actions.append({"type": "highlight_buildings", "ids": [h["id"] for h in homes[:5]]})
+        words = ["One", "Two", "Three"]
+        for i, h in enumerate(top):     # the map follows the list as it is read out
+            actions.append({"type": "set_map_view", "center": [h["lon"], h["lat"]], "zoom": 15.8, "cue": f"{words[i]}: {h['name']}"})
+        return ack + lead + narrate.home_list(homes, n, st.get("general", False))
+    if stage in ("pick", "tour") and (stage == "pick" or not re.search(YES, low)):
+        home = _pick_guided(low, cmd, st)
+        if home:
+            st["home"], st["unit"] = home, None
+            text, uid = _pitch(st)
+            st["unit"] = uid
+            actions.append({"type": "open_building", "id": home})
+            from . import main as api
+            b = api.buildings()[home]
+            actions.append({"type": "set_map_view", "center": [b["lon"], b["lat"]], "zoom": 17.2})
+            if uid:
+                st["guide"] = "tour"
+                return text + " Shall I walk you through it, starting at the front door?"
+            return text + " I can't walk you through this one, because nothing inside is measured. Would you like to hear another? Say one, two or three."
+        if stage == "pick" and re.search(NO + r"|none of (?:them|these)|something else|other options|different", low):
+            st["guide"], st["area_known"] = "area", False
+            return "Okay. Tell me a different area or place to be near, or say anywhere. You can also change the budget: say a new number."
+        if stage == "pick":
+            return None
+    if stage == "tour":
+        if re.search(YES + r"|walk me|tour|go on|start|front door|inside", low):
+            from . import main as api
+            u = api.unit_heatmap(st["unit"], st["profiles"][0])
+            n = narrate.unit_narration(u, st["profiles"][0], st["profiles"])
+            sec = n["sections"]
+            keys = (["layout"] + (["paths"] if "blind" in st["profiles"] else []) + ["rooms", "fixtures"]
+                    + (["doors"] if st.get("general") or {"wheelchair", "older"} & set(st["profiles"]) else []) + ["problems"])
+            actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0]})
+            st["guide"] = "furniture"
+            return (narrate._say_in(" ".join(sec[k] for k in keys if k in sec)) + " Would you like me to plan where your furniture goes? "
+                    "Tell me what you own, for example a queen bed, a desk and a sofa. Or say no.")
+        if re.search(NO, low):
+            st["guide"] = "furniture"
+            return "Okay. Would you like me to plan where your furniture goes? Tell me what you own, for example a queen bed, a desk and a sofa. Or say no."
+        return None
+    if stage == "furniture":
+        pieces = parse_furniture(low)
+        if pieces:
+            return _furnish(pieces, st, actions)
+        if re.search(NO, low):
+            st["guide"] = "done"
+            return "No problem. " + _closing(st)
+        if re.search(YES, low):
+            return "What furniture do you own? For example: a queen bed, two nightstands, a sofa and a desk."
+        return None
+    return None
+
+
+def _furnish(pieces: list[str], st: dict, actions: list) -> str:
+    from pipeline.furnish import plan_furnishing
+
+    from . import main as api
+    if not st.get("unit"):
+        st["guide"] = "done"
+        return "I need a home with a measured floor plan to place furniture. Pick one first: say one, two or three."
+    ps = st["profiles"]
+    plan = plan_furnishing(st["unit"], [{"label": p} for p in pieces], ps, {})
+    u = api.unit_heatmap(st["unit"], ps[0])
+    said = narrate.plan_narration(plan, u, ["older"] if st.get("general") else ps)
+    actions.append({"type": "open_unit", "model_id": st["unit"], "profile": ps[0], "tab": "plan", "plan": plan})
+    st["guide"] = "done"
+    say = lambda p: narrate.PIECE.get(p, p)  # noqa: E731
+    names = narrate._join([say(p) if pieces.count(p) == 1 else f"{pieces.count(p)} {say(p)}s" for p in dict.fromkeys(pieces)])
+    return f"Here's where your {names} go{'es' if len(pieces) == 1 else ''}, so you can still get everywhere. " + said["text"] + " " + _closing(st)
+
+
+def _closing(st: dict) -> str:
+    from . import main as api
+    b = api.building(st["home"], ",".join(st["profiles"])) if st.get("home") else {}
+    check = [x for x in b.get("checklist", []) if not x.startswith("We did not check")][:2]
+    return ((("Before you sign: " + " ".join(check) + " ") if check else "")
+            + "Ask me anything else about it, like the way to the pharmacy, or say start over to look again.")
+
+
 # ---------------------------------------------------------------- 2. act
 
 def _rank(st: dict, ps: list[str], center, km: float) -> tuple[list[dict], list[str]]:
@@ -226,7 +507,7 @@ def _rank(st: dict, ps: list[str], center, km: float) -> tuple[list[dict], list[
             caps = " ".join((u.get("caption") or "") for u in b["units"]).lower()
             if not (b.get("beds") == beds or re.search(rf"\b{beds}\s*b(?:r|ed)", caps)):
                 continue
-        base = min(b["scores"][p]["score"] for p in ps) / 100
+        base = (sum(b["scores"][p]["score"] for p in ps) / len(ps) if st.get("general") else min(b["scores"][p]["score"] for p in ps)) / 100
         cell = cells.get(b["h3"]) or {}
         streets = cell.get("streets")
         mins = (cell.get("minutes") or {}).get(ps[0], {})
@@ -272,7 +553,8 @@ def _rank(st: dict, ps: list[str], center, km: float) -> tuple[list[dict], list[
     if "safe_streets" in pri:
         notes.append("I have no crime data. By safe I mean streets that are safer to get around for you: sidewalks, crossings with signals, and lowered curbs.")
     notes += [NO_DATA[p] for p in pri if p in NO_DATA]
-    out = [{"id": b["id"], "name": b["name"], "score": min(b["scores"][p]["score"] for p in ps), "rent": b.get("rent_min"), "inside": bool(b.get("inside")),
+    agg = (lambda v: round(sum(v) / len(v))) if st.get("general") else min  # noqa: E731
+    out = [{"id": b["id"], "name": b["name"], "score": agg([b["scores"][p]["score"] for p in ps]), "rent": b.get("rent_min"), "inside": bool(b.get("inside")),
             "access": b["components"]["vertical_access"]["why"], "why": why, "lat": b["lat"], "lon": b["lon"], "n": len(rows)} for _t, b, why in rows[:5]]
     return out, notes
 
@@ -305,13 +587,23 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
     smart = False
     if not t:
         return done("I didn't hear anything. Hold the space bar and speak.", remember=False)
+    if t == GUIDE_START or re.fullmatch(r"\W*(?:start over|restart|start again|let'?s start(?: again| over)?|begin again)\W*", low):
+        keep = {k: st[k] for k in ("city",) if k in st}
+        st.clear()
+        st.update(keep, profiles=ctx.get("profiles") or ["wheelchair"], guide="needs")
+        st.setdefault("city", ctx.get("city") or "houston")
+        return done(GREETING)
     cmd, smart = _understand(t, st, screen)
     intent = cmd.get("intent")
 
     if intent == "repeat" and st.get("last"):
         return done(st["last"], remember=False)
-    if intent == "help":
+    if intent == "help" and not st.get("guide") in GUIDE_STAGES:
         return done(HELP)
+    if st.get("guide") in GUIDE_STAGES:
+        said = _guide(t, low, cmd, st, actions)
+        if said is not None:
+            return done(said)
 
     # things said at any time are remembered: needs, city, budget, the qualities wanted
     changed = False

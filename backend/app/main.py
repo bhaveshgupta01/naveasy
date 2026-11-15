@@ -240,7 +240,11 @@ def _checklist(b: dict, unit_problems: list[dict]) -> list[str]:
         out.append("Look at the flagged thresholds; a small ramp may be needed.")
     if "no_turning_space" in kinds or "unreachable_room" in kinds:
         out.append("Check the bathroom with its fixtures in place: turning room, space beside the toilet, shower entry.")
-    out.append("We did not check: counter and switch heights, door hardware, grab bars, visual or audible alarms.")
+    if "counter_height" in kinds:
+        out.append("Measure the counter and sink heights flagged from the 3D scan (34 in or lower for a seated user); ask whether a lowered "
+                   "section or an adjustable counter is possible.")
+    out.append("We did not check: switch and outlet heights, door hardware, grab bars, visual or audible alarms. "
+               "Counter and sink heights are measured only on scans with a 3D mesh.")
     return out
 
 

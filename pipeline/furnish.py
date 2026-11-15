@@ -74,6 +74,18 @@ def load_furniture(model_id: str) -> list[dict]:
         if w > 0.5 and d > 0.5:
             it["rect"] = [round(x + 0.1, 2), round(y + 0.1, 2), round(w - 0.2, 2), round(d - 0.2, 2)]
         out.append(it)
+    # heights from the furnished scan's 3D mesh, where it is on disk: the footprint comes from the panoramas,
+    # the main surface (mattress, seat, table top) and the top from the mesh
+    from .fixtures import load_heights
+    try:
+        heights = load_heights(model_id, out)
+    except Exception:  # noqa: BLE001  a damaged mesh cache must not stop the furniture loading
+        heights = {}
+    for it in out:
+        h = heights.get(it["id"])
+        it["height_m"] = h["height_m"] if h else None
+        it["surface_m"] = h["surface_m"] if h else None
+        it["height_source"] = "mesh" if h else None
     return out
 
 

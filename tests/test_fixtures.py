@@ -86,3 +86,84 @@ def test_no_mesh_means_no_fixtures():
     assert plan.fixtures is None and plan.floors[0].fixture_mask is None
     u = unit_json(plan, analyze(plan), "wheelchair")
     assert u["fixtures"] == [] and u["fixtures_source"] is None
+    assert u["fixture_items"] == [] and "counter_height" not in u["checks"]
+
+
+# ---------------------------------------------------------------- each built-in measured on its own
+
+def build_measured(counter_z=0.91, labels=None):
+    """The test flat with a floor in the mesh, a 2.0 x 0.6 m counter along the kitchen's south wall at counter_z,
+    and a 0.40 x 0.45 m toilet seat at 0.42 m in the bathroom."""
+    m_ = make_model(bath_door=0.95)
+    for r in m_["floors"][0]["rooms"]:
+        lab = r["classifications"][0]["label"]
+        r["classifications"][0]["label"] = (labels or {"Living Room": "Kitchen"}).get(lab, lab)
+    plan = load_plan("test", m_)
+    m = Mesh()
+    m.quad(0.0, 0.0, 8.0, 6.0, 0.0)                 # the floor
+    m.quad(0.3, 0.15, 2.3, 0.75, counter_z)         # kitchen counter, its back 9 cm off the wall
+    m.quad(7.2, 0.3, 7.6, 0.75, 0.42)               # toilet seat
+    v, fc = m.arrays()
+    fm = fixtures.masks(plan, v, fc)
+    for i, mask in fm.items():
+        plan.floors[i].fixture_mask = mask
+    for i, its in fixtures.items(plan, v, fc, fm).items():
+        plan.floors[i].fixture_items = its
+    plan.fixtures = "mesh"
+    return plan, plan.floors[0]
+
+
+def test_counter_is_measured_and_a_high_one_is_a_reach_problem():
+    plan, f = build_measured(counter_z=0.91)
+    counter = next(it for it in f.fixture_items if it["room_type"] == "Kitchen")
+    assert counter["kind"] == "counter" and counter["at_wall"]
+    assert abs(counter["width_m"] - 2.0) <= 0.1 and abs(counter["depth_m"] - 0.6) <= 0.1
+    assert 35.3 <= counter["height_in"] <= 36.3 and counter["floor_ref"] == "mesh"
+    assert "measured from the 3D mesh" in counter["measured"] and "inferred" in counter["kind_source"]
+    res = analyze(plan)
+    hits = [p for p in res["problems"] if p["kind"] == "counter_height"]
+    assert len(hits) == 1 and hits[0]["severity"] == "medium" and hits[0]["profile"] == "wheelchair"
+    assert "about 36 in high" in hits[0]["text"] and "804.3.2" in hits[0]["text"]
+    assert res["checks"]["wheelchair"]["counter_height"] == {"weight": 0.0, "value": 0.0}
+    u = unit_json(plan, res, "wheelchair")
+    assert any(it["kind"] == "counter" for it in u["fixture_items"])
+
+
+def test_a_34_inch_counter_is_not_a_problem_and_scores_do_not_move():
+    plan, _f = build_measured(counter_z=0.85)
+    res = analyze(plan)
+    assert not [p for p in res["problems"] if p["kind"] == "counter_height"]
+    assert res["checks"]["wheelchair"]["counter_height"]["value"] == 1.0
+    for fl in plan.floors:
+        fl.fixture_items = None                      # the same home without measured items scores the same
+    assert analyze(plan)["scores"] == res["scores"]
+
+
+def test_toilet_sized_patch_is_a_toilet():
+    _plan, f = build_measured()
+    toilet = next(it for it in f.fixture_items if it["room_type"] == "Bathroom")
+    assert toilet["kind"] == "toilet" and not toilet["possibly_movable"]
+    assert 15.5 <= toilet["height_in"] <= 17.5
+
+
+def test_public_building_lists_desks_but_does_not_block_them():
+    plan, f = build_measured(counter_z=0.74, labels={"Living Room": "Classroom", "Bedroom": "Office"})
+    assert fixtures.is_public(plan)
+    desk = next(it for it in f.fixture_items if it["room_type"] == "Classroom")
+    assert desk["kind"] == "desk or table" and desk["possibly_movable"]
+    r, c = f.rc(1.3, 0.45)
+    assert not f.fixture_mask[r, c]                  # listed, but the heat map doesn't treat it as built in
+    assert 28.5 <= desk["height_in"] <= 29.8
+
+
+def test_furniture_heights_from_the_mesh():
+    plan, _f = build_measured()
+    m = Mesh()
+    m.quad(0.0, 0.0, 8.0, 6.0, 0.0)
+    m.quad(5.6, 3.4, 7.1, 5.4, 0.6)                 # a mattress top in the bedroom
+    m.quad(5.6, 5.3, 7.1, 5.4, 1.1)                 # a thin headboard
+    v, fc = m.arrays()
+    out = fixtures.furniture_heights(plan, v, fc, [{"id": "bed", "floor": 0, "rect": [5.5, 3.3, 1.7, 2.2]},
+                                                   {"id": "rug", "floor": 0, "rect": [1.0, 2.0, 1.0, 1.0]}])
+    assert abs(out["bed"]["surface_m"] - 0.6) < 0.02 and out["bed"]["height_m"] >= 0.6
+    assert "rug" not in out                          # nothing level seen above the floor there: no height

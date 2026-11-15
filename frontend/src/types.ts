@@ -106,6 +106,35 @@ export interface Furniture {
   floor?: number
   room?: string
   tall?: boolean
+  height_m?: number | null // top, from the furnished scan's 3D mesh (footprints come from the panoramas)
+  surface_m?: number | null // main level surface: mattress, seat, table top
+  height_source?: 'mesh' | null
+}
+
+// A built-in measured from the 3D mesh (pipeline/fixtures.py): size and height measured, kind inferred
+export interface FixtureItem {
+  id: string
+  kind: string // counter, island, vanity, toilet, tub, toilet tank, shelf or ledge; public buildings: desk or table, bench or seat, ...
+  floor: number
+  room: string | null
+  room_type: string
+  x: number
+  y: number
+  width_m: number
+  depth_m: number
+  height_m: number // top above the floor beside it
+  width_in: number
+  depth_in: number
+  height_in: number
+  shape: 'straight' | 'L or U shaped'
+  angle_deg: number
+  area_m2: number
+  polygon: [number, number][]
+  at_wall: boolean
+  possibly_movable: boolean
+  floor_ref: 'mesh' | 'room' | 'floor' // where the floor height came from; only 'mesh' items are checked
+  measured: string
+  kind_source: string
 }
 
 // values[row][col]: 0 outside, 1 blocked, 2 problem, 3 caution, 4 good (row 0 = lowest y)
@@ -160,6 +189,7 @@ export interface Unit {
   tour_url?: string
   fixtures?: [number, number, number][] // built-ins from the 3D mesh: [row, first col, last col + 1] on the heat grid
   fixtures_source?: 'mesh' | null
+  fixture_items?: FixtureItem[] // each built-in on this floor, measured from the 3D mesh
   defurnished_id?: string | null // Matterport's furniture-removed view of this scan (same scan positions)
 }
 

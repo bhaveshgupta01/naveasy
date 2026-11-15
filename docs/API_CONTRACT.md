@@ -73,9 +73,37 @@ Heat grid values mean, per profile: `wheelchair` 4 reachable at 36 in, 3 reachab
   "heat": { "cell_m": 0.1, "origin": [x0, y0], "width": 86, "height": 72, "values": [[...], ...] },
   "fixtures": [[row, first_col, last_col_plus_1], ...],   // built-ins from the 3D mesh, on the heat grid
   "fixtures_source": "mesh",                             // or null when the mesh wasn't available
+  "fixture_items": [{                                     // each built-in on this floor, measured from the mesh
+    "id": "fx0_7", "kind": "counter", "floor": 0, "room": "r3", "room_type": "Kitchen", "x": 2.1, "y": 0.4,
+    "width_m": 3.71, "depth_m": 0.99, "height_m": 0.902, "width_in": 146, "depth_in": 39, "height_in": 35.5,
+    "shape": "straight", "angle_deg": 0.0, "area_m2": 2.6, "polygon": [[x, y], ...], "at_wall": true,
+    "possibly_movable": false, "floor_ref": "mesh",
+    "measured": "width, depth and height measured from the 3D mesh", "kind_source": "inferred from room, size and height" }],
   "defurnished_id": "teat3htgur5a5tzxus3xz552c"          // Matterport's furniture-removed view, or null
 }
 ```
+
+**Measured built-ins** (`fixture_items`). Each patch of the built-in mask is split into seat-height (under 62 cm) and
+counter-height parts and measured: width and depth from its minimum rotated rectangle (L or U shaped counters report
+run length by depth, `shape`), and the height of its top above the floor seen in the mesh 10 to 60 cm around it
+(`floor_ref: "mesh"`; `"room"` or `"floor"` when no floor was seen there, which is less reliable). Sizes and heights are
+measured; `kind` is inferred from room type, size and height: `counter`, `island`, `vanity`, `toilet`, `toilet tank`,
+`tub`, `shelf or ledge`, `table`, `counter or appliance`, `low surface`, `low built-in`. In a public building (no
+bedroom and no kitchen) level surfaces in classrooms, offices, halls and landings are listed too, as `desk or table`,
+`bench or seat`, `fixed seating or bench`, `high table or counter`, `counter` or `raised floor or platform`, most with
+`possibly_movable: true`; they are listed only, not added to the blocked floor. Calibration: ceilings measured the same
+way come out 0 to 2% under 8, 9 and 10 ft, so heights are good to about an inch.
+
+**Counter and sink heights** (wheelchair `checks.counter_height`, weight 0: reported, not scored; present only when
+measured items exist). Against the 2010 ADA Standards: the lowest kitchen counter section at least 30 in wide, 34 in
+maximum (804.3, 804.3.2); each bathroom's lowest vanity, 34 in (606.3); desks and tables on a public floor, 34 in
+(902.3); counters on a public floor, a 36 in section (904.4.1). Judged by the whole inch said aloud: at or under the
+limit passes (1), one inch over is a `low` problem "measure it" (0.5), two or more inches over is a `medium` problem
+(0). Problems have `kind: "counter_height"` and ids `height_<item id>`. Only items with `floor_ref: "mesh"` are judged.
+
+**Furniture heights.** `furniture[]` items (from `?furnished=true`) carry `height_m` (top) and `surface_m` (main level
+surface: mattress, seat, table top) from the furnished scan's mesh when it is on disk, with `height_source: "mesh"`, or
+nulls. Footprints still come from the panoramas.
 
 Built-ins (`fixtures`) come from Matterport's 50k-triangle mesh: level surfaces 30 cm to 1.3 m above the floor in
 kitchens, bathrooms, laundry, pantry and utility rooms (counters, islands, vanities, toilets, tubs). They block like

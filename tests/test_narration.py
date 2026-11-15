@@ -44,6 +44,28 @@ def test_problems_are_spoken_in_words(monkeypatch):
     assert "narrowest is about 26 inches" in s["doors"]
 
 
+def _item(kind, room_type, h_m, w_m, d_m, room="r9", **kw):
+    return {"id": "fx0_1", "kind": kind, "floor": 0, "room": room, "room_type": room_type, "x": 1.0, "y": 1.0,
+            "width_m": w_m, "depth_m": d_m, "height_m": h_m, "width_in": round(w_m / 0.0254), "depth_in": round(d_m / 0.0254),
+            "height_in": round(h_m / 0.0254, 1), "area_m2": round(w_m * d_m, 2), "shape": "straight", "possibly_movable": False, **kw}
+
+
+def test_built_ins_are_spoken_with_measured_heights(monkeypatch):
+    u = _unit(monkeypatch)
+    u["fixture_items"] = [_item("counter", "Kitchen", 0.914, 2.4, 0.62), _item("toilet", "Bathroom", 0.43, 0.4, 0.45, room="r1"),
+                          _item("toilet tank", "Bathroom", 0.76, 0.5, 0.22, room="r1")]
+    s = narrate.unit_narration(u, "wheelchair")["sections"]
+    assert "counter about 36 inches high, 8 feet long" in s["fixtures"] and "seat about 17 inches high" in s["fixtures"]
+    assert "tank" not in s["fixtures"] and "34 inches or lower" in s["fixtures"]
+    assert "measured from the scan's 3D mesh" in s["caveat"] and "Grab bars" in s["caveat"]
+
+
+def test_no_mesh_says_fixtures_were_not_measured(monkeypatch):
+    s = narrate.unit_narration(_unit(monkeypatch), "wheelchair")["sections"]
+    assert "fixtures" not in s and "aren't measured" in s["caveat"]
+    assert narrate.spoken_inches("about 36 in high; 34 in or lower (1.4 in)") == "about 36 inches high; 34 inches or lower (1.4 inches)"
+
+
 def test_relative_directions():
     assert narrate._relative((0, 1), (0, 5)) == "straight ahead"
     assert narrate._relative((0, 1), (-5, 0)) == "to your left"

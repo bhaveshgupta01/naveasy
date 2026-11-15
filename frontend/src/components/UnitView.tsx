@@ -24,7 +24,11 @@ const CHECK_LABEL: Record<string, string> = {
   entry_visible_from_seat: 'Entry visible from the main seat',
   entry_visible_from_kitchen: 'Entry visible from the kitchen',
   daylight: 'Windows in main rooms',
+  counter_height: 'Counter and sink heights (not scored)',
 }
+// built-ins worth listing (toilet tanks, ledges and platforms are left out)
+const LISTED_KINDS = new Set(['counter', 'island', 'vanity', 'toilet', 'tub', 'desk or table', 'bench or seat', 'fixed seating or bench', 'counter or appliance', 'high table or counter', 'table'])
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1)
 const DEFAULT_PIECES = ['queen bed', 'nightstand', 'dresser', 'sofa', 'tv stand', 'dining table', 'desk', 'armchair']
 
 interface Props {
@@ -285,6 +289,41 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                         ))}
                       </tbody>
                     </table>
+                    {(() => {
+                      const items = (unit!.fixture_items ?? []).filter((it) => LISTED_KINDS.has(it.kind) && (it.area_m2 >= 0.1 || it.kind === 'toilet'))
+                      if (!items.length) return null
+                      return (
+                        <>
+                          <h3>Built-ins on this floor</h3>
+                          <ul className="builtins">
+                            {items.map((it) => (
+                              <li key={it.id}>
+                                <span>
+                                  <strong>{cap(it.kind)}</strong> <span className="muted">· {it.room_type === 'Other' ? 'unlabeled area' : it.room_type.toLowerCase()}</span>
+                                </span>
+                                <span>
+                                  <b>{Math.round(it.height_m / 0.0254)} in</b> high · {it.width_in} × {it.depth_in} in{it.shape !== 'straight' ? ` (${it.shape}, run × depth)` : ''}
+                                </span>
+                                <span className="tags">
+                                  <span className="tag measured" title={it.measured}>
+                                    size and height measured
+                                  </span>
+                                  <span className="tag" title={it.kind_source}>
+                                    kind inferred
+                                  </span>
+                                  {it.possibly_movable && <span className="tag">may be movable</span>}
+                                  {it.floor_ref !== 'mesh' && <span className="tag">floor height estimated</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="fine">
+                            Sizes and heights come from Matterport&apos;s 3D mesh, good to about an inch; what each one is comes from its room, size and height.
+                            A seated user needs a counter, sink or work surface 34 in or lower (2010 ADA Standards 804.3.2, 606.3, 902.3).
+                          </p>
+                        </>
+                      )
+                    })()}
                     <h3>
                       {unit!.problems.length} problem{unit!.problems.length === 1 ? '' : 's'} found
                     </h3>
@@ -308,8 +347,8 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                     <p className="fine">
                       Door widths are scan widths minus 2 in (scans measure the frame opening).{' '}
                       {unit!.fixtures_source
-                        ? "Counters, islands, vanities, toilets and tubs come from Matterport's 3D mesh of this scan."
-                        : 'Fixtures such as the toilet, tub and counters are not in the scan geometry.'}{' '}
+                        ? "Counters, islands, vanities, toilets and tubs, and their heights, come from Matterport's 3D mesh of this scan; grab bars, hardware and alarms aren't checked."
+                        : 'Fixtures such as the toilet, tub and counters are not in the scan geometry, so their heights are not measured.'}{' '}
                       Estimates, not a certification: measure before you sign.
                     </p>
                   </>

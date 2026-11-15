@@ -22,3 +22,8 @@ def test_unrelated_questions_get_no_answer():
 def test_word_matching():
     assert screen._tokens("How wide are the doorways?") == ["wide", "doorway"]
     assert "rent" in screen._expand(["expensive"]) and "door" in screen._expand(["doorway"])
+
+
+def test_counter_height_rule_is_explained():
+    a = screen.answer("How high should a kitchen counter be for a wheelchair?", SCREEN, ["wheelchair"])
+    assert a and "34 inches or lower" in a["text"] and "ADA" in a["text"]

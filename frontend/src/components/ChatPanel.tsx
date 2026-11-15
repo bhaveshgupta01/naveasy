@@ -1,14 +1,44 @@
 import { useEffect, useRef, useState } from 'react'
+import type { AgentStep } from '../types'
 
 export interface Msg {
   role: 'user' | 'assistant'
   content: string
+  steps?: AgentStep[]
+  mode?: string
 }
 
 interface Props {
   msgs: Msg[]
   ask: (text: string) => Promise<string>
+  live?: AgentStep[]
   onVoice: () => void
+}
+
+const WHO: Record<string, string> = {
+  planner: 'Planner', building: 'Building · CoStar', inside: 'Inside · Matterport', outside: 'Outside · Vexcel, OSM, Valhalla', checker: 'Checker', agent: 'Agent',
+}
+const MODE: Record<string, string> = { deep: 'Planned with LangChain deepagents', claude: 'Claude agent with tools', local: 'Local, on this machine' }
+
+// The agent's work, shown under its answer: the plan, each subagent's task, every tool call, the checks.
+function Steps({ steps, mode, open }: { steps: AgentStep[]; mode?: string; open?: boolean }) {
+  if (!steps.length) return null
+  const icon = (s: AgentStep) => (s.kind === 'plan' ? '📝' : s.kind === 'subagent' ? '➜' : s.kind === 'tool' ? '🔧' : s.kind === 'check' ? (s.status === 'warn' ? '⚠' : '✓') : '•')
+  return (
+    <details className="steps" open={open}>
+      <summary>
+        How I worked this out: {steps.length} step{steps.length === 1 ? '' : 's'}
+        {mode && MODE[mode] ? ` · ${MODE[mode]}` : ''}
+      </summary>
+      <ol>
+        {steps.map((s, i) => (
+          <li key={i} className={`step ${s.kind} ${s.status ?? ''}`}>
+            <span aria-hidden>{icon(s)}</span> {s.who && <strong>{WHO[s.who] ?? s.who}:</strong>} {s.text}
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
 }
 
 const STARTERS = [
@@ -20,7 +50,7 @@ const FOLLOW_UPS = ['Tell me about the first one', 'What is it like inside?', 'T
 
 // The same conversation as voice mode, typed. The assistant keeps the thread (needs, the homes it listed, the one
 // being discussed) and moves the map, panels and routes as it answers.
-export default function ChatPanel({ msgs, ask, onVoice }: Props) {
+export default function ChatPanel({ msgs, ask, live = [], onVoice }: Props) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const end = useRef<HTMLDivElement>(null)
@@ -47,12 +77,20 @@ export default function ChatPanel({ msgs, ask, onVoice }: Props) {
           </div>
         )}
         {msgs.map((m, i) => (
-          <p key={i} className={`msg ${m.role}`}>
-            <span className="sr-only">{m.role === 'user' ? 'You: ' : 'NavEasy: '}</span>
-            {m.content}
-          </p>
+          <div key={i}>
+            <p className={`msg ${m.role}`}>
+              <span className="sr-only">{m.role === 'user' ? 'You: ' : 'NavEasy: '}</span>
+              {m.content}
+            </p>
+            {m.steps && <Steps steps={m.steps} mode={m.mode} open={m.mode === 'deep'} />}
+          </div>
         ))}
-        {busy && <p className="msg assistant muted">Looking that up…</p>}
+        {busy && (
+          <>
+            <p className="msg assistant muted">Looking that up…</p>
+            <Steps steps={live} open />
+          </>
+        )}
         {msgs.length > 0 && !busy && (
           <div className="chips">
             {FOLLOW_UPS.map((f) => (

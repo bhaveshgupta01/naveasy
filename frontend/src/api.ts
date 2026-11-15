@@ -1,5 +1,5 @@
 // All data comes from the NavEasy API (backend/app/main.py). Default: http://localhost:8000.
-import type { Building, BuildingDetail, Category, City, FloorplanImage, FurnishPlan, FurnishScore, Furniture, Profile, Relocation, Route, Score, UiAction, Unit } from './types'
+import type { AgentStep, Building, BuildingDetail, Category, City, FloorplanImage, FurnishPlan, FurnishScore, Furniture, Profile, Relocation, Route, Score, UiAction, Unit } from './types'
 
 export const API = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8000'
 
@@ -53,7 +53,8 @@ export const planFurnishing = (body: { target_model_id: string; profiles: Profil
   post<FurnishPlan>('/furnish/plan', body)
 export const relocate = (body: Record<string, unknown>) => post<Relocation>('/relocate', body)
 export const chat = (messages: { role: string; content: string }[], context: Record<string, unknown>) =>
-  post<{ text: string; ui_actions: UiAction[]; state?: Record<string, unknown> }>('/agent/chat', { messages, context })
+  post<{ text: string; ui_actions: UiAction[]; state?: Record<string, unknown>; steps?: AgentStep[]; mode?: string }>('/agent/chat', { messages, context })
+export const fetchProgress = (rid: string) => get<{ steps: AgentStep[] }>(`/agent/progress/${rid}`).then((d) => d.steps)
 export const aerialUrl = (lat: number, lon: number) => `${API}/aerial?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&meters=30`
 export const obliqueUrl = (lat: number, lon: number, direction: string) => `${API}/oblique?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&direction=${direction}`
 export const fetchCrosswalk = (lat: number, lon: number) => get<{ seen: boolean; text: string }>(`/crosswalk?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`)

@@ -5,9 +5,9 @@ import BuildingPanel from './components/BuildingPanel'
 import UnitView from './components/UnitView'
 import RelocatePanel from './components/RelocatePanel'
 import ChatPanel, { type Msg } from './components/ChatPanel'
-import VoiceMode from './components/VoiceMode'
+import SpeakDock, { type Reply } from './components/SpeakDock'
 import Outside3D from './components/Outside3D'
-import { chat, combine, fetchBuildings, fetchHex, fetchHexes, fetchMeta, relocate, type HexRow, type Meta } from './api'
+import { chat, combine, fetchBuildings, fetchHex, fetchHexes, fetchMeta, fetchProgress, relocate, type HexRow, type Meta } from './api'
 import { CATEGORIES, PROFILES, scoreWord, type Building, type Category, type City, type FurnishPlan, type Profile, type Relocation, type Route, type UiAction } from './types'
 import './App.css'
 
@@ -44,10 +44,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [contrast, setContrast] = useState(false)
   const [step, setStep] = useState(-1)
-  const [voice, setVoice] = useState(false)
+  const startVoice = useRef<(() => void) | null>(null)
   const [drone, setDrone] = useState<{ b: Building; pitch: number } | null>(null) // the map handed over to a home's drone model
   const allRef = useRef<Building[]>([])
   const [msgs, setMsgs] = useState<Msg[]>([])
+  const [liveSteps, setLiveSteps] = useState<NonNullable<Msg['steps']>>([])
   const convo = useRef<{ state: Record<string, unknown>; location?: { lat: number; lon: number } }>({ state: {} })
   const [aerial, setAerial] = useState(true)
   const [threeD, setThreeD] = useState(true)
@@ -213,41 +214,42 @@ export default function App() {
     },
   ]
 
-  // One conversation shared by the chat panel and voice mode. The assistant's state (needs, the homes it listed,
-  // the home being discussed) rides along so follow-ups work; its UI actions move the app.
+  // One conversation shared by the chat panel and the speak button. The assistant's state (needs, the homes it listed,
+  // the home being discussed) rides along so follow-ups work; its UI actions move the app. Typed answers move the app
+  // at once; spoken ones hand their actions to the speak button, which runs each as its sentence is spoken.
   const ask = useCallback(
-    async (text: string) => {
-      setMsgs((m) => [...m, { role: 'user', content: text }])
+    async (text: string, channel: 'text' | 'voice' = 'text'): Promise<Reply & { steps?: Msg['steps'] }> => {
+      const opening = text === '__start__'
+      if (!opening) setMsgs((m) => [...m, { role: 'user', content: text }])
+      if (channel === 'voice' && !convo.current.location)
+        navigator.geolocation?.getCurrentPosition(
+          (p) => (convo.current.location = { lat: p.coords.latitude, lon: p.coords.longitude }),
+          () => undefined,
+          { maximumAge: 60000, timeout: 8000 },
+        )
+      // the work in progress (plan, subagents, tool calls) is shown while we wait
+      const rid = `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`
+      setLiveSteps([])
+      const poll = window.setInterval(() => void fetchProgress(rid).then(setLiveSteps).catch(() => undefined), 800)
       try {
-        const r = await chat([{ role: 'user', content: text }], { city, profiles, state: convo.current.state, location: convo.current.location, screen: screenRef.current })
+        const r = await chat([{ role: 'user', content: text }], { city, profiles, channel, request_id: rid, state: convo.current.state, location: convo.current.location, screen: screenRef.current }).finally(() => {
+          window.clearInterval(poll)
+          setLiveSteps([])
+        })
         convo.current.state = r.state ?? convo.current.state
-        setMsgs((m) => [...m, { role: 'assistant', content: r.text }])
-        runActions(r.ui_actions ?? [])
-        return r.text
+        setMsgs((m) => [...m, { role: 'assistant', content: r.text, steps: r.steps, mode: r.mode }])
+        if (channel === 'text') runActions(r.ui_actions ?? [])
+        return { text: r.text, ui_actions: r.ui_actions ?? [], steps: r.steps }
       } catch (e) {
         const msg = `Sorry, that failed: ${String((e as Error).message ?? e)}`
         setMsgs((m) => [...m, { role: 'assistant', content: msg }])
-        return msg
+        return { text: msg, ui_actions: [] }
       }
     },
     [city, profiles, runActions],
   )
-  useEffect(() => {
-    if (!voice || convo.current.location) return
-    navigator.geolocation?.getCurrentPosition(
-      (p) => (convo.current.location = { lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => undefined,
-      { maximumAge: 60000, timeout: 8000 },
-    )
-  }, [voice])
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName
-      if (e.key.toLowerCase() === 'v' && !e.metaKey && !e.ctrlKey && !e.altKey && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') setVoice(true)
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [])
+  const askVoice = useCallback((text: string) => ask(text, 'voice'), [ask])
+  const askText = useCallback((text: string) => ask(text, 'text').then((r) => r.text), [ask])
 
   // What is on screen right now, so the assistant can answer questions about it ("how wide is that door?")
   const screenRef = useRef<Record<string, unknown>>({})
@@ -278,8 +280,8 @@ export default function App() {
             Nav<span>Easy</span>
           </h1>
           <p className="tagline">Can I live here independently?</p>
-          <button className="voice-open" onClick={() => setVoice(true)}>
-            🎙 Voice mode <span>talk and listen, no screen needed (press V)</span>
+          <button className="voice-open" onClick={() => startVoice.current?.()}>
+            🎙 Talk to NavEasy <span>it asks what you need and walks you through homes, no screen needed (press V)</span>
           </button>
         </header>
 
@@ -417,7 +419,7 @@ export default function App() {
             </ol>
           </div>
         )}
-        {tab === 'ask' && <ChatPanel msgs={msgs} ask={ask} onVoice={() => setVoice(true)} />}
+        {tab === 'ask' && <ChatPanel msgs={msgs} ask={askText} live={liveSteps} onVoice={() => startVoice.current?.()} />}
 
         {error && (
           <p role="alert" className="error">
@@ -563,7 +565,6 @@ export default function App() {
           onClose={() => select(null)}
         />
       )}
-      {voice && <VoiceMode ask={ask} onClose={() => setVoice(false)} />}
       {openUnit && (
         <UnitView
           key={openUnit.modelId + (openUnit.tab ?? '')}
@@ -577,6 +578,7 @@ export default function App() {
           onClose={() => setOpenUnit(null)}
         />
       )}
+      <SpeakDock ask={askVoice} runActions={runActions} onChat={() => setTab('ask')} chatOpen={tab === 'ask'} startRef={startVoice} />
     </div>
   )
 }

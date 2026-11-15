@@ -238,7 +238,15 @@ export interface Relocation {
   note: string
 }
 
-export type UiAction =
+// One step of the planning agent's work, shown under its answer (backend/app/deep.py)
+export interface AgentStep {
+  kind: 'plan' | 'subagent' | 'tool' | 'check' | 'note'
+  who?: string // which subagent: building, inside, outside, checker
+  text: string
+  status?: string
+}
+
+export type UiAction = (
   | { type: 'set_map_view'; center: [number, number]; zoom: number; profiles?: Profile[]; city?: City }
   | { type: 'highlight_buildings'; ids: string[] }
   | { type: 'open_building'; id: string }
@@ -246,6 +254,7 @@ export type UiAction =
   | { type: 'show_route'; building_id: string; category: Category; profile: Profile }
   | { type: 'show_relocation'; request: Record<string, unknown> }
   | { type: 'open_drone'; id: string }
+) & { cue?: string } // voice: run this action when the sentence containing `cue` starts to be spoken
 
 // each need's identity color (no red or green: see colors.ts)
 export const PROFILES: { id: Profile; label: string; short: string; color: string }[] = [

@@ -26,7 +26,17 @@ if __name__ == "__main__":
         if path.exists() and "--force" not in sys.argv:
             print("cached already:", q)
             continue
-        path.unlink(missing_ok=True)
+        # keep the old run until the new one has worked (a failed run, e.g. no API credit, must not lose the cache)
+        old = path.with_suffix(".old")
+        if path.exists():
+            path.rename(old)
         t = time.time()
-        r = deep.run(q, ctx)
+        try:
+            r = deep.run(q, ctx)
+        except Exception as e:  # noqa: BLE001
+            if old.exists():
+                old.rename(path)
+            print(f"FAILED, kept the old cached run: {q}\n  {str(e)[:200]}\n")
+            continue
+        old.unlink(missing_ok=True)
         print(f"{time.time() - t:.0f}s  {len(r['steps'])} steps  {q}\n  {r['text'][:300]}\n")

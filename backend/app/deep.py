@@ -194,6 +194,11 @@ def _key(text: str, context: dict) -> str:
     return hashlib.sha1(json.dumps([norm, sorted(context.get("profiles") or []), context.get("city")]).encode()).hexdigest()[:16]
 
 
+def cached(text: str, context: dict) -> bool:
+    """A completed planned run for this request is on disk (it replays without calling any model)."""
+    return (CACHE / f"deep_{_key(text, context)}.json").exists() and os.getenv("NAVEASY_DEEP_CACHE", "on").lower() not in ("off", "0", "false")
+
+
 def run(text: str, context: dict) -> dict:
     cached = CACHE / f"deep_{_key(text, context)}.json"
     if cached.exists() and os.getenv("NAVEASY_DEEP_CACHE", "on").lower() not in ("off", "0", "false"):

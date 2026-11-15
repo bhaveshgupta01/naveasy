@@ -1117,6 +1117,12 @@ def respond(text: str, state: dict | None, context: dict | None = None) -> dict:
     actions.append({"type": "set_map_view", "center": [sum(h["lon"] for h in homes[:3]) / len(homes[:3]), sum(h["lat"] for h in homes[:3]) / len(homes[:3])],
                     "zoom": 14 if center else 12.5, "profiles": ps, "city": st["city"]})
     actions.append({"type": "highlight_buildings", "ids": [h["id"] for h in homes]})
+    if _casual(st):
+        st["last_kind"] = "list"
+        where_ = f" near {near.title() if near == near.lower() else near}" if near else f" in {'Houston' if st['city'] == 'houston' else 'Los Angeles'}"
+        budget_ = f" under {st['budget']:,} dollars" if st.get("budget") else ""
+        return done(f"For {needs_words} needs{where_}{budget_}: " + (" ".join(notes) + " " if notes else "") + narrate.casual_list(homes, homes[0]["n"])
+                    + " It's all from 3D scans and maps, so check in person before you sign.")
     lines = []
     for i, h in enumerate(homes[:3]):
         line = f"{i + 1}. {h['name']}, score {h['score']}. {h['access'][0].upper() + h['access'][1:]}"

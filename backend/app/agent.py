@@ -211,6 +211,26 @@ def _tool(name: str, a: dict, actions: list) -> dict:
     return {"error": f"unknown tool {name}"}
 
 
+# When Claude can't be used (no credit left, a bad key), answer on this machine instead, and stop trying for ten minutes
+_DOWN = {"until": 0.0, "why": ""}
+
+
+def claude_down() -> bool:
+    import time
+    return time.time() < _DOWN["until"]
+
+
+def _mark_down(err: Exception | str) -> bool:
+    """True (and Claude is skipped for a while) when the error means it can't answer at all, not a passing hiccup."""
+    import time
+    msg = str(err)
+    if re.search(r"credit balance|billing|authentication|invalid x-api-key|permission|401|403", msg, re.I):
+        _DOWN.update(until=time.time() + (1800 if "credit" in msg.lower() else 600),
+                     why="no Anthropic credit left" if "credit" in msg.lower() else "the Anthropic key was refused")
+        return True
+    return False
+
+
 # request id -> the steps of the work in progress, so the app can show them while it waits (GET /agent/progress/{id})
 PROGRESS: dict[str, list] = {}
 
@@ -229,7 +249,9 @@ def route(text: str, context: dict) -> str:
     st = context.get("state") or {}
     if context.get("channel") == "voice" or text.startswith("__") or st.get("guide") in dialogue.GUIDE_STAGES or st.get("pending_needs"):
         return "local"      # voice, the guided conversation, and signals from the app (__start__, __ui_needs__) stay local
-    if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("NAVEASY_AGENT", "").lower() == "local":
+    if os.getenv("NAVEASY_DEEP", "on").lower() not in ("off", "0", "false", "no") and deep.cached(text, context) and deep.wants_plan(text, st):
+        return "deep"       # a cached planned run replays without calling any model, so it works even with Claude down
+    if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("NAVEASY_AGENT", "").lower() == "local" or claude_down():
         return "local"
     if deep.enabled() and deep.wants_plan(text, st):
         return "deep"
@@ -241,21 +263,33 @@ def chat(messages: list[dict], context: dict | None = None) -> dict:
     context = context or {}
     last = next((m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
     how = route(last.strip(), context)
+    from . import dialogue
+
+    def local(note: str | None = None) -> dict:
+        out = dialogue.respond(last, context.get("state"), context)
+        out["mode"] = "local"
+        if note:
+            out["steps"] = [{"kind": "note", "who": "agent", "status": "warn", "text": note}]
+        return out
     try:
         if how == "deep":
             from . import deep
             try:
                 return deep.run(last, context)
-            except Exception as e:  # noqa: BLE001 - the planned mode is optional; fall back to the single agent
+            except Exception as e:  # noqa: BLE001 - the planned mode is optional; fall back to the single agent, then to this machine
+                if _mark_down(e):
+                    return local(f"Claude is unavailable ({_DOWN['why']}), so this was answered on this machine.")
                 out = claude(last, context)
+                if out.get("unavailable"):
+                    return local(f"Claude is unavailable ({_DOWN['why'] or 'error'}), so this was answered on this machine.")
                 out["steps"] = [{"kind": "note", "text": f"Planned mode failed ({str(e)[:120]}); answered by the single agent instead."}] + out.get("steps", [])
                 return out
         if how == "claude":
-            return claude(last, context)
-        from . import dialogue
-        out = dialogue.respond(last, context.get("state"), context)
-        out["mode"] = "local"
-        return out
+            out = claude(last, context)
+            if out.get("unavailable"):
+                return local(f"Claude is unavailable ({_DOWN['why'] or 'error'}), so this was answered on this machine.")
+            return out
+        return local()
     except Exception as e:  # noqa: BLE001 - a spoken interface must always answer
         return {"text": f"Sorry, I couldn't look that up ({str(getattr(e, 'detail', e))[:120]}). Please try again.", "ui_actions": [], "state": context.get("state") or {}, "mode": how}
 
@@ -320,11 +354,12 @@ def claude(text: str, context: dict) -> dict:
             reply = "The assistant is busy right now. Please try again in a moment."
             break
         except anthropic.APIStatusError as e:
+            if _mark_down(e) or e.status_code >= 500:
+                return {"unavailable": True}
             reply = f"The assistant couldn't answer (error {e.status_code}). The filters and map still work."
             break
         except anthropic.APIConnectionError:
-            reply = "The assistant can't be reached right now. The filters and map still work."
-            break
+            return {"unavailable": True}
         if resp.stop_reason == "refusal":
             reply = "I can't help with that request."
             break

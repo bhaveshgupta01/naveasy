@@ -45,16 +45,23 @@ Demo with test data only; real users' disability information needs the paid tier
 | `check_apartment` | `model_id`, `profile` | `GET /units/{model_id}/heatmap` (read `problems`) |
 | `compare_cities` | `origin_address`, `profiles[]` | `POST /relocate` |
 
-## Status
+## Status (checked Nov 14, 22:00, with our key)
 
-- [x] Backend endpoint stub (`POST /voice/token` returns 503 until the key is set, 501 until implemented)
-- [ ] Mint ephemeral tokens
-- [ ] Browser Live session (mic in, audio out, interruption handling)
-- [ ] Tool calls wired to the API
-- [ ] Photon phone line (stretch, for Photon's Best Voice Agent prize)
+- [x] `POST /voice/token` mints a one-use ephemeral token (HTTP 200 from `v1beta/auth_tokens`).
+- [x] Live models this key can use (`bidiGenerateContent`): `gemini-3.8-live`, `gemini-3.8-live-extended-thinking`,
+  `gemini-3.1-flash-live-preview`, `gemini-2.5-flash-native-audio-latest`, `gemini-3.5-transcribe-live`.
+- [x] A Live session from Python (google-genai 3.3): `gemini-3.8-live` needs the **v1alpha** endpoint (v1beta returns
+  HTTP 404 on the WebSocket). Connect 0.3 s; first audio 0.7 s after a text turn. `gemini-2.5-flash-native-audio-latest`
+  works on both versions, first audio 1.6 s.
+- [ ] Browser Live session (mic in, audio out, interruption handling): not built.
+- [ ] Tool calls wired to the API: not built.
 
-Docs: [Live API](https://aistudio.google.com/docs/live-api) ·
-[tools](https://aistudio.google.com/docs/live-api/tools) ·
-[ephemeral tokens](https://aistudio.google.com/docs/live-api/ephemeral-tokens) ·
-[session management](https://aistudio.google.com/docs/live-api/session-management) ·
-[pricing](https://aistudio.google.com/docs/pricing)
+**What the app uses today:** the speak button runs on local open-source speech (Whisper hears, Piper speaks) and the
+local conversation manager (`dialogue.py`), so nothing said leaves the machine and every sentence comes from our data.
+Answers are spoken sentence by sentence and the map moves with them (actions carry a `cue`).
+
+**If Gemini Live is added:** use it as the ears and mouth only. Declare one tool, `ask_naveasy(text)`, that posts to
+`/agent/chat` with `channel: "voice"` and returns `{text, ui_actions}`; tell the model to read the tool's text verbatim
+and run nothing else. That keeps "the model never supplies a fact", gains Gemini's barge-in and a faster first word, and
+loses the sentence-cued map moves unless the transcript is matched to cues. On the free tier Google may use the audio to
+improve its products, so demo with test data only.

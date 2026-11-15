@@ -146,6 +146,28 @@ response `{ origin, profiles, candidates: [{ h3, name, match, comparison: { phar
 
 ## Agent
 
-Request `{ messages: [{ role, content }], session_id }`; response `{ text, ui_actions: [...] }` where each action is one of:
-`set_map_view {center: [lon, lat], zoom, profiles, city}`, `highlight_buildings {ids}`, `open_building {id}`,
-`show_route {building_id, category, profile}`, `open_unit {model_id, profile, problem_id, tab, plan}`, `show_relocation {request}`.
+`POST /agent/chat` is the one entry point, channel-neutral (text and state in; text, actions and state out), so a
+messaging sidecar could call it the same way the web app does.
+
+Request `{ messages: [{ role, content }], context: { channel: "text" | "voice", city, profiles, state, screen, location, request_id } }`.
+`state` is whatever the previous response returned (needs, budget, the homes listed, the home and unit being discussed,
+the guided conversation's step, and `history` for the Claude paths); send it back unchanged.
+
+Response `{ text, ui_actions: [...], state, mode: "local" | "claude" | "deep", steps?: [...] }`.
+
+- `mode`: `local` answers voice and the guided conversation on this machine (`dialogue.py`); `deep` is the planned
+  mode on LangChain deepagents for multi-step home searches (`deep.py`, off with `NAVEASY_DEEP=off`); `claude` is one
+  tool-calling Claude agent for other typed questions (`agent.py`).
+- `steps`: what the agent did, in order: `{ kind: "plan" | "subagent" | "tool" | "check" | "note", who, text, status }`.
+  `who` is `planner`, `building`, `inside`, `outside`, `checker` or `agent`. The last `check` step says how many numbers
+  in the answer were found in the tool results.
+- The message `__start__` starts the guided conversation (the agent asks what help is needed, then budget and area,
+  reads back three homes, tours the chosen one from the entry door and plans the person's furniture).
+
+`GET /agent/progress/{request_id}` returns `{ steps }` for an answer still being worked on (the app polls it).
+`GET /agent/modes` says which modes are available.
+
+Each action is one of `set_map_view {center: [lon, lat], zoom, profiles, city}`, `highlight_buildings {ids}`, `open_building {id}`,
+`show_route {building_id, category, profile}`, `open_unit {model_id, profile, problem_id, tab, plan}`, `show_relocation {request}`,
+`open_drone {id}`. Any action may carry `cue`: text from the answer; when the answer is spoken, the action runs as the
+sentence containing the cue starts (the map follows a list as it is read out). Without `cue` it runs at once.

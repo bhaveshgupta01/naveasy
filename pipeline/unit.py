@@ -57,6 +57,7 @@ class Floor:
     wall_mask: np.ndarray | None = None
     fixture_mask: np.ndarray | None = None   # built-ins found in the 3D mesh (pipeline.fixtures); None if not looked for
     stairs_mask: np.ndarray | None = None    # the stairs themselves, found in the mesh inside rooms labeled Staircase
+    fixture_items: list | None = None        # each built-in measured from the mesh (pipeline.fixtures.items)
 
     def rc(self, x: float, y: float) -> tuple[int, int]:
         r = int((y - self.bounds[1]) / CELL)
@@ -488,6 +489,54 @@ def _in(v: float) -> str:
     return f"{v / 0.0254:.0f} in"
 
 
+def _reach(plan: Plan, P: list) -> list[float]:
+    """Counter, sink and work-surface heights measured from the 3D mesh (pipeline.fixtures) against the 2010 ADA
+    Standards: 34 in maximum for a kitchen work surface (804.3.2), a lavatory rim or counter (606.3) and work
+    surfaces (902.3); 36 in for a service counter (904.4.1). One verdict per kitchen, bathroom, or public floor,
+    from its lowest qualifying surface: 804.3 asks for one 30 in wide section, not every counter. Only items whose
+    floor was seen in the mesh beside them count. Adds problems to P; returns one value per verdict. Verdicts go by
+    the whole inch that is said aloud, since the mesh is good to about an inch (and reads up to 2% low against
+    ceilings): at or under the limit 1, one inch over 0.5 ("measure it"), two or more inches over 0."""
+    from .fixtures import SECTION_MIN_M, SERVICE_MAX_M, WORK_MAX_M
+    groups: dict = {}
+    for f in plan.floors:
+        for it in f.fixture_items or []:
+            if it.get("floor_ref") != "mesh":
+                continue
+            k = it["kind"]
+            if k in ("counter", "island") and it["room_type"] in ("Kitchen", "Pantry"):
+                if it["width_m"] >= SECTION_MIN_M:
+                    groups.setdefault(("kitchen", it["room"]), ("Kitchen counter", WORK_MAX_M, "804.3.2", "a kitchen work surface", []))[4].append(it)
+            elif k == "vanity":
+                groups.setdefault(("bath", it["room"]), ("Bathroom vanity", WORK_MAX_M, "606.3", "a sink's rim or counter", []))[4].append(it)
+            elif k == "desk or table":
+                groups.setdefault(("desk", f.index), ("Desks and tables", WORK_MAX_M, "902.3", "a work surface", []))[4].append(it)
+            elif k == "counter" and it["width_m"] >= SERVICE_MAX_M:
+                groups.setdefault(("service", f.index), ("Counter", SERVICE_MAX_M, "904.4.1", "a service counter section", []))[4].append(it)
+    vals = []
+    for (_g, _key), (label, limit, rule, what, its) in groups.items():
+        low = min(its, key=lambda it: it["height_m"])
+        said, lim_in = round(low["height_m"] / 0.0254), round(limit / 0.0254)
+        many = len(its) > 1
+        inches = f"{said} in"
+        if said <= lim_in:
+            vals.append(1.0)
+            continue
+        base = {"id": f"height_{low['id']}", "kind": "counter_height", "profile": "wheelchair", "floor": low["floor"], "x": low["x"], "y": low["y"]}
+        lim = f"{lim_in} in"
+        if said == lim_in + 1:
+            vals.append(0.5)
+            P.append({**base, "severity": "low",
+                      "text": f"{label}: {'the lowest section is ' if many else ''}about {inches} high, right at the {lim} figure for {what} "
+                              f"(2010 ADA Standards {rule}). The scan is good to about an inch, so measure it."})
+        else:
+            vals.append(0.0)
+            P.append({**base, "severity": "medium",
+                      "text": f"{label}: {'the lowest section is ' if many else ''}about {inches} high, measured from the 3D scan; "
+                              f"a seated user needs {what} {lim} or lower (2010 ADA Standards {rule})."})
+    return vals
+
+
 # ---------------------------------------------------------------- the analysis
 
 def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None = None, layers: bool = True) -> dict:
@@ -595,6 +644,11 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
                   "a doorway or passage on the way is too narrow" + (" or blocked by furniture" if furniture else "")
             P.append({"id": f"reach_{r['id']}", "kind": "unreachable_room", "severity": "high", "profile": "wheelchair", "floor": pf["f"].index,
                       "x": r["centroid"][0], "y": r["centroid"][1], "text": f"A wheelchair can't reach this {r['type'].lower()}: {why}."})
+    # counter and sink heights from the 3D mesh: reported, not weighted, so scores stay comparable across scans
+    # with and without a mesh
+    heights = _reach(plan, P)
+    if heights:
+        wc["counter_height"] = (0.0, share(heights))
     for (pf, i), ok in zip(turn_rooms, turn_ok):
         r = pf["f"].rooms[i]
         if not ok and room_reached(pf, i):
@@ -878,6 +932,8 @@ def unit_json(plan: Plan, res: dict, profile: str = "wheelchair", floor: int | N
         # built-ins found in the 3D mesh, as [row, first col, last col + 1] runs on the heat grid
         "fixtures": _runs(fix) if fix is not None and plan.fixtures else [],
         "fixtures_source": plan.fixtures,
+        # each built-in measured from the mesh: size and height measured, what it is inferred (pipeline.fixtures)
+        "fixture_items": list(f.fixture_items or []),
     }
 
 

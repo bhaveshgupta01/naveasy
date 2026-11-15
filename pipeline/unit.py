@@ -682,22 +682,33 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
     if beds:
         bf, bi = beds[0]
         pf = per_floor[bf.index]
-        src = _room_cell(bf, bi, pf["walk"])
-        if src:
-            dbed, pbed = _graph_dist(pf["walk"], src)
-            bed_dist_floor = (bf.index, dbed)
-            best = None
+        srcs = [_room_cell(bf, bi, pf["walk"])]
+        # with a bed in that bedroom, the night walk starts beside the bed (either long side), not in the middle of the room
+        bed_item = next((it for it in furniture if "bed" in str(it.get("label", "")) and it.get("floor", 0) == bf.index
+                         and bf.room_idx[bf.rc(it["rect"][0] + it["rect"][2] / 2, it["rect"][1] + it["rect"][3] / 2)] == bi), None)
+        if bed_item:
+            x, y, w, d = bed_item["rect"]
+            sides = [(x - 0.35, y + d / 2), (x + w + 0.35, y + d / 2)] if d >= w else [(x + w / 2, y - 0.35), (x + w / 2, y + d + 0.35)]
+            srcs = [c for c in (_nearest_true(pf["walk"], bf.rc(*p_), 0.6) for p_ in sides) if c] or srcs
+        best = None
+        for src in [s_ for s_ in srcs if s_]:
+            dbed_, pbed_ = _graph_dist(pf["walk"], src)
             for i, r in enumerate(bf.rooms):
                 if r["type"] == "Bathroom":
-                    door_cells = [bf.rc(d["x"], d["y"]) for d in bf.doors if r["id"] in d["rooms"]]
-                    cands = [c for c in (_nearest_true(pf["walk"] & np.isfinite(dbed), dc, 0.6) for dc in door_cells) if c]
-                    cell = min(cands, key=lambda c: dbed[c]) if cands else _room_cell(bf, i, pf["walk"] & np.isfinite(dbed))
-                    if cell and (best is None or dbed[cell] < best[0]):
-                        best = (float(dbed[cell]), cell)
-            if best:
-                pts, turns = _path(bf, pbed, src, best[1], pf["walk"])
-                bed_bath = best[0]
-                paths["bed_bathroom"] = {"from": "bed", "to": "bathroom", "floor": bf.index, "meters": round(best[0], 1), "turns": turns, "points": pts}
+                    door_cells = [bf.rc(d_["x"], d_["y"]) for d_ in bf.doors if r["id"] in d_["rooms"]]
+                    cands = [c for c in (_nearest_true(pf["walk"] & np.isfinite(dbed_), dc, 0.6) for dc in door_cells) if c]
+                    cell = min(cands, key=lambda c: dbed_[c]) if cands else _room_cell(bf, i, pf["walk"] & np.isfinite(dbed_))
+                    if cell and (best is None or dbed_[cell] < best[0]):
+                        best = (float(dbed_[cell]), cell, src, dbed_, pbed_)
+        if best is None and srcs[0]:
+            dbed_, _p = _graph_dist(pf["walk"], srcs[0])
+            bed_dist_floor = (bf.index, dbed_)
+        if best:
+            src, dbed, pbed = best[2], best[3], best[4]
+            bed_dist_floor = (bf.index, dbed)
+            pts, turns = _path(bf, pbed, src, best[1], pf["walk"])
+            bed_bath = best[0]
+            paths["bed_bathroom"] = {"from": "bed", "to": "bathroom", "floor": bf.index, "meters": round(best[0], 1), "turns": turns, "points": pts}
     out["paths"] = list(paths.values())
 
     # ---- older adults
@@ -750,7 +761,10 @@ def analyze(plan: Plan, furniture: list | None = None, chair_width: float | None
             if it.get("floor", 0) != f0.index:
                 continue
             poly = Polygon(item_polygon(it))
+            at_bed = "bed" in str(it.get("label", "")) or it.get("label") == "nightstand"
             for p in main_paths:
+                if at_bed and p["to"] == "bed":
+                    continue                 # the way to the bed ends at the bed: it isn't clutter on its own route
                 if len(p["points"]) > 1 and LineString(p["points"]).distance(poly) < 0.3:
                     clutter_hits.append(it)
                     break

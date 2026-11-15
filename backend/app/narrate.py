@@ -406,6 +406,16 @@ WALL = {"straight ahead": "against the far wall", "ahead and to your left": "aga
         "behind you to your right": "against the right wall", "behind you": "against the wall with the door"}
 
 
+WHY_LEAD = {"Faces": "it faces", "Leaves": "it leaves", "Has": "it has", "Its": "its", "Kept": "it's kept", "From": "from"}
+
+
+def _why_clause(why: str) -> str:
+    """A placement's reason, joined onto the sentence that says where the piece goes."""
+    first, _, rest = why.partition(" ")
+    lead = WHY_LEAD.get(first, first[:1].lower() + first[1:])
+    return speakable(_say_in(f"{lead} {rest}".strip()))
+
+
 def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) -> dict:
     """A furnishing plan described the way the home tour is: room by room, standing in each room's doorway and facing in.
     `plan` is plan_furnishing()'s result and `unit` the target's /heatmap response. Every position comes from the plan's
@@ -455,10 +465,12 @@ def plan_narration(plan: dict, unit: dict, profiles: list[str] | None = None) ->
                     pieces.append(f"Your {label} goes against a wall {where}, {far} in.")
             else:
                 pieces.append(f"Your {label} stands clear of the walls, {where}, {far} in.")
+            if p.get("why") and p.get("needs"):          # the need it serves, measured: said right after where it goes
+                pieces[-1] = pieces[-1][:-1] + ": " + _why_clause(p["why"])
         lead = (f"In the {name}, coming in through its door. " if own else f"In the {name}, facing in from the front door. ") if door else f"In the {name}. "
         parts.append(lead + " ".join(pieces))
     for p in plan.get("placements", []):
-        if "bed" in p["label"]:
+        if "bed" in p["label"] and not p.get("why"):
             why = next((r for r in plan.get("reasons", []) if r.startswith("The bed")), None)
             m = re.search(r"with about (\d+) in clear on one side for transfers(?:, and (\d+) m from the bathroom)?", why or "")
             if m:

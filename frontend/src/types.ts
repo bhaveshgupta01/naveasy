@@ -243,7 +243,8 @@ export interface FurnishPlan {
   ordinary_min: number
   ordinary_max: number
   ordinary_blocked: number
-  placements: Furniture[]
+  // each placement also says why it goes there, for which needs, and any rule no spot could keep
+  placements: (Furniture & { why?: string; needs?: Profile[]; caution?: string; transfer_side?: string; facing?: [number, number] | null })[]
   typical_placements: Furniture[]
   wont_fit: { label: string; reason: string }[]
   reasons: string[]

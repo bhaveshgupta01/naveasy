@@ -437,18 +437,21 @@ class _Needs:
         return min(gaps) if gaps else None
 
     def night_walk(self, free: np.ndarray, rect: list[float], facing) -> float | None:
-        """Walk (m) from the bed's open side to the nearest bathroom door."""
+        """Walk (m) to the nearest bathroom door from where you get up: the middle of either long side of the bed
+        (the engine measures from the same spots, so the plan and its score agree)."""
+        from .unit import _nearest_true
         if self.d_bath is None:
             return None
-        sides, t0, t1 = _bed_geometry(rect, facing)
+        x, y, w, d = rect
+        spots = [(x - 0.35, y + d / 2), (x + w + 0.35, y + d / 2)] if d >= w else [(x + w / 2, y - 0.35), (x + w / 2, y + d + 0.35)]
+        ok = np.isfinite(self.d_bath) & free
         best = None
-        for s in sides:
-            strip = _side_strip(rect, s, 0.3, t0, t1)
-            sl = _rect_mask(self.f, strip)
-            vals = self.d_bath[sl][free[sl]] if self.d_bath[sl].size else np.array([])
-            vals = vals[np.isfinite(vals)]
-            if vals.size and (best is None or vals.min() < best):
-                best = float(vals.min())
+        for p_ in spots:
+            if not (self.f.bounds[0] <= p_[0] < self.f.bounds[2] and self.f.bounds[1] <= p_[1] < self.f.bounds[3]):
+                continue
+            c = _nearest_true(ok, self.f.rc(*p_), 0.6)
+            if c and (best is None or self.d_bath[c] < best):
+                best = float(self.d_bath[c])
         return best
 
     def walk_from_entry(self, rect: list[float]) -> float | None:
@@ -461,7 +464,7 @@ class _Needs:
 
 
 def _place_all(plan: Plan, f: Floor, inventory: list[dict], profiles: list[str], prefs: dict, accessible: bool,
-               rng: "np.random.Generator | None" = None, needs: "_Needs | None" = None) -> tuple[list, list]:
+               rng: "np.random.Generator | None" = None, needs: "_Needs | None" = None, first: tuple = ()) -> tuple[list, list]:
     """Place the pieces one by one, largest first. accessible=False is an ordinary layout (first wall slot that fits);
     otherwise every selected need's hard rules are kept where any slot allows it, and its soft goals are scored."""
     ps = set(profiles)
@@ -475,7 +478,7 @@ def _place_all(plan: Plan, f: Floor, inventory: list[dict], profiles: list[str],
     has_living = bool(by_type(("Living Room",)))
     bedrooms = by_type(("Bedroom",))
     beds_placed = 0
-    order = sorted(inventory, key=lambda it: -(it["w"] * it["d"]))
+    order = sorted(inventory, key=lambda it: (it["label"] not in first, -(it["w"] * it["d"])))   # `first`: pieces placed before the rest
     for n, it in enumerate(order):
         label = it["label"]
         std = STANDARD.get(label, (it["w"], it["d"], False, "living"))
@@ -551,7 +554,13 @@ def _place_all(plan: Plan, f: Floor, inventory: list[dict], profiles: list[str],
             free_now = needs.free & ~furn if needs else q0["free"] & ~furn
             sides, t0, t1 = _bed_geometry(rect, facing)
             side = max(sides, key=lambda s_: _side_clearance(free_now, f, rect, s_, t0, t1))
-            keep_out.append(_side_strip(rect, side, TRANSFER_M, t0, t1))
+            strip = _side_strip(rect, side, TRANSFER_M, t0, t1)
+            mask = np.zeros(f.shape, bool)
+            if f.bounds[0] <= strip[0] and f.bounds[1] <= strip[1] and strip[0] + strip[2] <= f.bounds[2] and strip[1] + strip[3] <= f.bounds[3]:
+                mask[_rect_mask(f, strip)] = True
+            # only real floor in the bed's own room: the strip must not reach through a wall into the next room
+            bed_room = f.room_idx[f.rc(rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)]
+            keep_out.append(mask & free_now & (f.room_idx == bed_room))
             item["transfer_side"] = side
     return placed, wont
 
@@ -577,7 +586,7 @@ def _choose(plan, f, it, label, std, cands, placed, door_zone, furn, tall_mask, 
         if std[2] and any(math.dist((cx, cy), (w_["x"], w_["y"])) < w_["width_m"] / 2 + 0.4 for w_ in f.windows):
             continue                                       # tall pieces don't block windows
         broken, score = [], 0.0
-        if any(_overlap(rect, k) for k in keep_out):
+        if any(k[_rect_mask(f, rect)].any() for k in keep_out):
             broken.append("keep_out")
         # ---- blind: nothing within 30 cm of a learned route; prefer more room than that
         if bl and needs:
@@ -647,10 +656,19 @@ def _choose(plan, f, it, label, std, cands, placed, door_zone, furn, tall_mask, 
         rows.append([len(broken), score, rect, facing, broken])
     if not rows:
         return None
-    least = min(r[0] for r in rows)
-    pool = sorted([r for r in rows if r[0] == least], key=lambda r: -r[1])[:160]
+    if label == "dining table":
+        # by the kitchen (Technical Design section 8): a table in the living room takes the seating's walls
+        room_of = lambda r_: f.rooms[int(f.room_idx[f.rc(r_[2][0] + r_[2][2] / 2, r_[2][1] + r_[2][3] / 2)])]["type"]  # noqa: E731
+        if any(room_of(r_) in ("Kitchen", "Dining Room") for r_ in rows):
+            for r_ in rows:
+                if room_of(r_) not in ("Kitchen", "Dining Room"):
+                    r_[1] -= 10
+    # the best-scoring slots first, fewest broken rules first; after 160 checked, stop at the first one that keeps every room reachable
+    rows.sort(key=lambda r: (r[0], -r[1]))
     best = None
-    for viol, score, rect, facing, broken in pool:
+    for k, (viol, score, rect, facing, broken) in enumerate(rows):
+        if best is not None and (k >= 160 or viol > rows[0][0]):
+            break
         trial = furn.copy()
         trial[_rect_mask(f, rect)] = True
         q = _quick(plan, f, trial)
@@ -790,6 +808,18 @@ def plan_furnishing(target: "str | Plan", inventory: list[dict], profiles: list[
     empty = analyze(plan, layers=False)
     needs = _Needs(plan, f, profiles, empty)
     placed, wont = _place_all(plan, f, inv, profiles, prefs, accessible=True, needs=needs)
+    # placing largest first can leave a later piece no room (a table takes the sofa's only wall, or a bed placed for
+    # the night walk leaves the table nowhere to stand): try again with every piece that hasn't fit so far placed
+    # first, up to two more times, and keep the layout that fits the most
+    first: tuple = ()
+    for _ in range(2):
+        missing = tuple(w["label"] for w in wont if w["reason"].startswith("No spot"))
+        if not missing:
+            break
+        first = tuple(dict.fromkeys(first + missing))
+        p2, w2 = _place_all(plan, f, inv, profiles, prefs, accessible=True, needs=needs, first=first)
+        if len(w2) < len(wont):
+            placed, wont = p2, w2
     after = analyze(plan, placed, layers=False)
     reasons = _explain(plan, f, placed, needs, profiles, after)
     # The comparison: 15 ordinary layouts of the same pieces (each piece in a random wall slot that fits).

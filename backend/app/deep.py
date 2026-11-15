@@ -206,7 +206,8 @@ def run(text: str, context: dict) -> dict:
     model = ChatAnthropic(model=MODEL, max_tokens=6000, output_config={"effort": "low"}, timeout=120, max_retries=2)
     subagents = [{"name": name, "description": desc, "system_prompt": prompt + "\n\n" + RULES, "tools": _tools(r, name, emit=name != "checker"), "model": model}
                  for name, (desc, prompt) in SUBAGENTS.items()]
-    graph = create_deep_agent(model=model, tools=[], system_prompt=PLANNER, subagents=subagents, name="naveasy")
+    from langchain.agents.middleware import TodoListMiddleware     # deepagents 0.7 no longer adds write_todos by itself
+    graph = create_deep_agent(model=model, tools=[], system_prompt=PLANNER, subagents=subagents, middleware=[TodoListMiddleware()], name="naveasy")
     app = {k: context[k] for k in ("city", "profiles") if context.get(k)}
     history = [m for m in r.state.get("history", []) if m.get("role") in ("user", "assistant")][-6:]
     msgs = history + [{"role": "user", "content": f"{text}\n\n(App state: {json.dumps(app)})"}]
@@ -215,16 +216,18 @@ def run(text: str, context: dict) -> dict:
     planned = False
     for update in graph.stream({"messages": msgs}, stream_mode="updates", config={"recursion_limit": 60}):
         for node, val in (update or {}).items():
-            if isinstance(val, dict) and val.get("todos") and not planned:
-                planned = True
-                r.step("plan", "planner", "Plan: " + "; ".join((t.get("content") if isinstance(t, dict) else str(t)) for t in val["todos"]))
+            if isinstance(val, dict) and val.get("todos"):
+                todos = [t if isinstance(t, dict) else {"content": str(t)} for t in val["todos"]]
+                if not planned:
+                    planned = True
+                    r.step("plan", "planner", "Plan: " + "; ".join(t.get("content", "") for t in todos))
+                else:
+                    done = sum(1 for t in todos if t.get("status") == "completed")
+                    now = next((t.get("content") for t in todos if t.get("status") == "in_progress"), None)
+                    r.step("plan", "planner", f"Plan: {done} of {len(todos)} done" + (f"; now: {now}" if now else "."))
             for m in (val or {}).get("messages", []) if isinstance(val, dict) else []:
                 for tc in getattr(m, "tool_calls", None) or []:
-                    if tc["name"] == "write_todos" and not planned:
-                        planned = True
-                        todos = tc["args"].get("todos") or []
-                        r.step("plan", "planner", "Plan: " + "; ".join((t.get("content") if isinstance(t, dict) else str(t)) for t in todos))
-                    elif tc["name"] == "task":
+                    if tc["name"] == "task":
                         who = tc["args"].get("subagent_type", "?")
                         r.step("subagent", who, (tc["args"].get("description") or "")[:300])
                 if getattr(m, "type", "") == "tool" and getattr(m, "name", "") == "task":

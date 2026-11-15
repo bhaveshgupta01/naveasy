@@ -213,18 +213,92 @@ def unit_narration(unit: dict, profile: str = "wheelchair", profiles: list[str] 
         narrow = min(doors, key=lambda d: d["est_clear_in"])
         sec["doors"] = (f"{ok} of {len(doors)} main doorways are at least 32 inches clear. The narrowest is about {narrow['est_clear_in']:.0f} inches. "
                         f"A wheelchair can cover {stats['reach36_share'] * 100:.0f} percent of the floor with 36 inches of clearance.")
+    built = fixtures_sentence(unit.get("fixture_items") or [])
+    if built:
+        sec["fixtures"] = built
     probs = [p for p in (unit.get("all_problems") or unit.get("problems", [])) if p["profile"] in profiles and p["severity"] != "low"]
     if probs:
         top = probs[:4]
-        sec["problems"] = (f"{len(probs)} thing{'s' if len(probs) != 1 else ''} to know. " + " ".join(p["text"].replace(" in clear", " inches clear").replace(" in.", " inches.") for p in top)
+        sec["problems"] = (f"{len(probs)} thing{'s' if len(probs) != 1 else ''} to know. " + " ".join(spoken_inches(p["text"]) for p in top)
                            + (f" And {len(probs) - len(top)} more." if len(probs) > len(top) else ""))
     else:
         sec["problems"] = "I found no problems for your needs in what the scan can measure."
-    sec["caveat"] = "This comes from the 3D scan, not a visit. Fixtures like the toilet, tub and counters aren't measured, so check the bathroom and kitchen in person."
+    if built:
+        sec["caveat"] = ("This comes from the 3D scan, not a visit. Counter, sink, toilet and tub heights are measured from the scan's 3D mesh "
+                         "and are good to about an inch. Grab bars, door hardware, switch heights and alarms aren't checked, so look at those in person.")
+    else:
+        sec["caveat"] = ("This comes from the 3D scan, not a visit. This scan has no 3D mesh measurements, so the toilet, tub and counters "
+                         "aren't measured; check the bathroom and kitchen in person.")
     if geo.get("summary"):
         sec["matterport"] = f"Matterport's own description: {geo['summary']}"
-    order = ["overview", "layout", "paths", "rooms", "light", "doors", "problems", "caveat"]
+    order = ["overview", "layout", "paths", "rooms", "light", "doors", "fixtures", "problems", "caveat"]
     return {"title": title, "sections": sec, "paragraphs": [sec[k] for k in order if k in sec], "compass_known": offset is not None}
+
+
+def spoken_inches(text: str) -> str:
+    """'about 26 in clear' -> 'about 26 inches clear', for anything read aloud."""
+    import re
+    return re.sub(r"(\d) in\b", r"\1 inches", text)
+
+
+SPOKEN_KINDS = ("counter", "island", "vanity", "toilet", "tub", "desk or table", "bench or seat", "fixed seating or bench",
+                "counter or appliance", "high table or counter")
+
+
+def _size(it: dict) -> str:
+    w, d = it["width_m"], it["depth_m"]
+    if w >= 1.2:
+        return f"{w * 3.281:.0f} feet long" if it.get("shape") == "L or U shaped" or d < 0.8 else f"{w * 3.281:.0f} by {d * 3.281:.0f} feet"
+    return f"{it['width_in']} by {it['depth_in']} inches"
+
+
+def fixtures_sentence(items: list[dict]) -> str:
+    """The built-ins of one floor, spoken: what each is (inferred), its height and size (measured from the mesh).
+    Shelves, toilet tanks, platforms and specks under 0.15 m2 are left out, and one toilet and one tub per room
+    (the largest); empty when nothing worth saying was measured."""
+    keep, seen = [], set()
+    for it in sorted(items, key=lambda i: -i["area_m2"]):
+        if it["kind"] not in SPOKEN_KINDS or (it["area_m2"] < 0.15 and it["kind"] != "toilet"):
+            continue
+        if it["kind"] in ("toilet", "tub"):
+            if (it["room"], it["kind"]) in seen:
+                continue
+            seen.add((it["room"], it["kind"]))
+        keep.append(it)
+    rooms: dict[str, tuple[str, list[str]]] = {}
+    count: dict[tuple, int] = {}
+    high = False
+    for it in sorted(keep, key=lambda i: (i["room_type"], str(i["room"]), -i["width_m"]))[:8]:
+        h = round(it["height_m"] / 0.0254)
+        n = count[(it["room"], it["kind"])] = count.get((it["room"], it["kind"]), 0) + 1
+        a = ("an" if it["kind"][0] in "aeiou" else "a") if n == 1 else "a second" if n == 2 else "another"
+        if it["kind"] == "toilet":
+            bit = f"the toilet, its seat about {h} inches high"
+        elif it["kind"] == "tub":
+            bit = f"the tub, its rim about {h} inches high"
+        else:
+            bit = f"{a} {it['kind']} about {h} inches high, {_size(it)}"
+            if it["kind"] in ("counter", "island", "vanity", "counter or appliance", "desk or table") and h > 34:
+                high = True
+        if it.get("possibly_movable"):
+            bit += ", possibly movable"
+        rooms.setdefault(str(it["room"]), (it["room_type"], []))[1].append(bit)
+    if not rooms:
+        return ""
+    types = [t for t, _b in rooms.values()]
+    said: dict[str, int] = {}
+    parts = []
+    for room_type, bits in rooms.values():
+        said[room_type] = said.get(room_type, 0) + 1
+        name = "an unlabeled area" if room_type == "Other" else room_type.lower()
+        if room_type != "Other":
+            name = f"the {name}" if types.count(room_type) == 1 else f"{'one' if said[room_type] == 1 else 'another'} {name}"
+        listed = bits[0] if len(bits) == 1 else "; ".join(bits[:-1]) + "; and " + bits[-1]
+        parts.append(f"In {name} there is {listed}.")
+    out = "Built-ins measured from the 3D scan. " + " ".join(parts)
+    if high:
+        out += " A seated user needs a counter, sink or work surface 34 inches or lower."
+    return out + " What each one is comes from its room, size and height, so confirm it on a visit."
 
 
 def _near_room(win: dict, room: dict) -> bool:

@@ -27,7 +27,10 @@ SYN = {
     "safe": "score barriers problems crossing", "why": "score because building inside components",
     "door": "door doors doorway doorways inches wide narrow", "doorway": "door doors doorway doorways inches", "wide": "wide width inches door doorway",
     "narrow": "narrow narrowest inches door doorway", "fit": "inches door doorway wheelchair reach",
-    "bathroom": "bathroom toilet", "bedroom": "bedroom bed", "kitchen": "kitchen", "room": "room rooms bedroom bathroom kitchen living",
+    "bathroom": "bathroom toilet", "bedroom": "bedroom bed", "kitchen": "kitchen",
+    "counter": "counter counters island height inches", "countertop": "counter counters height", "island": "island counter height",
+    "sink": "sink vanity counter height", "vanity": "vanity sink height", "toilet": "toilet seat height", "tub": "tub rim height",
+    "height": "height high inches", "desk": "desk table height", "table": "table desk height", "bench": "bench seat seating height", "room": "room rooms bedroom bathroom kitchen living",
     "big": "square feet size area large", "size": "square feet size area", "large": "square feet size area", "small": "square feet size area",
     "sunny": "sun light window facing morning afternoon", "dark": "light sun window", "view": "window windows facing",
     "window": "window windows light sun facing", "sun": "sun light window facing morning afternoon", "light": "light sun window", "bright": "light sun window",
@@ -60,7 +63,8 @@ GLOSSARY = [
     ("route line color green amber red grey dashed", "On a route, green stretches have a sidewalk or walkway, amber needs caution, red is a barrier, and grey dashed means there is no sidewalk record, so it is unknown."),
     ("data source where come from matterport vexcel costar openstreetmap", "Building facts come from CoStar. Room, door and window measurements come from Matterport 3D scans. Aerial photos and ground heights come from Vexcel. Places, sidewalks and crossings come from OpenStreetMap, and bus stops from the transit agencies. Routes come from Valhalla."),
     ("door width measured inches how estimate", "Door widths are the scanned opening minus 2 inches, because scans measure the frame, not the clear space with the door open. A wheelchair needs 32 inches clear."),
-    ("not checked fixtures toilet tub counter grab bars", "We don't measure fixtures such as the toilet, tub and counters, door hardware, counter heights, grab bars or alarms. Check those on a visit."),
+    ("not checked fixtures toilet tub counter grab bars height measured", "Counter, island, vanity, toilet and tub sizes and heights are measured from the scan's 3D mesh where we have one, good to about an inch; what each one is, is inferred from its room, size and height. We don't check grab bars, door hardware, switch heights or alarms. Check those on a visit."),
+    ("counter height high reach sink 34 inches seated", "For a seated user, the 2010 ADA Standards put a kitchen work surface, a sink's rim and other work surfaces at 34 inches or lower, and a service counter section at 36 inches or lower. We flag a counter only when the scan measures it two or more inches over."),
 ]
 
 
@@ -197,7 +201,8 @@ def facts_for(screen: dict, profiles: list[str]) -> list[dict]:
             title = n["title"]
             kws = {"overview": "size square feet rooms score big", "layout": "layout where entry door rooms left right ahead", "paths": "path way reach get steps bedroom bathroom kitchen",
                    "rooms": "room size feet big bedroom bathroom kitchen living", "light": "window windows sun light facing bright", "doors": "door doors doorway wide narrow inches wheelchair",
-                   "problems": "problem problems issue barrier watch wrong", "caveat": "fixtures toilet tub counter check visit", "matterport": "description summary"}
+                   "problems": "problem problems issue barrier watch wrong", "caveat": "fixtures toilet tub counter check visit", "matterport": "description summary",
+                   "fixtures": "counter counters island vanity sink toilet tub built-in height high tall reach inches"}
             for k, text in n["sections"].items():
                 add(title, text, kws.get(k, ""), 1.15 if k in ("overview", "problems") else 1.0)
             for p in ("wheelchair", "blind", "deaf", "older"):
@@ -206,7 +211,8 @@ def facts_for(screen: dict, profiles: list[str]) -> list[dict]:
                      "thresholds": "thresholds", "floor_reachable": "floor reachable at 36 inches", "no_stairs": "no stairs inside", "bed_to_bathroom": "bed to bathroom distance",
                      "entry_to_kitchen": "entry to kitchen distance", "bathroom_space": "bathroom size", "simple_paths": "simple paths", "level_changes": "no level changes",
                      "clear_paths": "paths clear of furniture", "open_sightlines": "open sightlines", "entry_visible_from_seat": "entry visible from the main seat",
-                     "entry_visible_from_kitchen": "entry visible from the kitchen", "daylight": "windows in main rooms"}
+                     "entry_visible_from_kitchen": "entry visible from the kitchen", "daylight": "windows in main rooms",
+                     "counter_height": "counter and sink heights (reported, not scored)"}
             for k, c in unit.get("checks", {}).items():
                 add(title, f"On {names.get(k, k)}, this unit gets {c['value'] * 100:.0f} percent.", k.replace("_", " ") + " turning circle stairs threshold reach")
             for d in unit["doors"]:
@@ -220,8 +226,23 @@ def facts_for(screen: dict, profiles: list[str]) -> list[dict]:
                 if r_["type"] in ("Bedroom", "Bathroom", "Kitchen"):
                     fits = r_["id"] in circles
                     add(title, f"A 60 inch wheelchair turning circle {'fits' if fits else 'does not fit, or cannot be reached,'} in the {r_['type'].lower()}"
-                               + (" (measured before fixtures such as the toilet and tub)." if r_["type"] == "Bathroom" else "."),
+                               + ((" (with the built-ins found in the 3D mesh in place)." if unit.get("fixtures_source") else
+                                   " (measured before fixtures such as the toilet and tub).") if r_["type"] in ("Bathroom", "Kitchen") else "."),
                         f"turn turning around circle spin wheelchair room {r_['type'].lower()}", 1.15)
+            for it in unit.get("fixture_items") or []:
+                if it["kind"] in narrate.SPOKEN_KINDS:
+                    room = "an unlabeled area" if it["room_type"] == "Other" else f"the {it['room_type'].lower()}"
+                    add(title, f"The {it['kind']} in {room} is about {it['height_m'] / 0.0254:.0f} inches high and {it['width_in']} by {it['depth_in']} inches, "
+                               f"measured from the 3D scan{'; it may be movable' if it.get('possibly_movable') else ''}.",
+                        f"{it['kind']} {it['room_type'].lower()} height high tall reach inches built-in size counter sink", 1.1)
+            for p in unit.get("problems") or []:
+                if p.get("kind") == "counter_height":
+                    add(title, narrate.spoken_inches(p["text"]), "counter sink vanity desk height low enough reach wheelchair seated high", 1.3)
+            for fu in unit.get("furniture") or []:
+                if fu.get("height_m"):
+                    add(title, f"The {fu.get('label', 'furniture')} is about {fu['surface_m'] / 0.0254:.0f} inches high at its main surface and "
+                               f"{fu['height_m'] / 0.0254:.0f} inches at its top, measured from the 3D scan.",
+                        f"{fu.get('label', '')} height high tall inches furniture bed", 1.0)
             if unit.get("scan_date"):
                 add(title, f"The scan was made on {unit['scan_date']}.", "scan date when old recent")
             bb = unit["stats"].get("bed_to_bathroom_m")

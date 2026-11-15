@@ -385,7 +385,8 @@ def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
     stage = st["guide"]
     if stage in ("needs", "budget", "area"):
         got = _fill(t, low, cmd, st)
-        if not got and cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") and not re.search(YES + "|" + NO, low):
+        if not got and (cmd.get("intent") in ("route", "question", "inside_home", "about_home", "neighborhood") or re.search(VENUE_WORDS, low)
+                        or find_named(t, st.get("city"))) and not re.search(YES + "|" + NO, low):
             return None                                              # a question of its own: answer it, keep the place in the guide
         ack = ("Okay: " + ", ".join(got) + ". ") if got else ""
         if not st.get("needs_known"):

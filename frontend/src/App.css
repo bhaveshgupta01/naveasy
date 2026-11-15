@@ -147,7 +147,7 @@ textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .tourstage { position: relative; height: 70vh; border-radius: 10px; overflow: hidden; background: #111; }
 .tourstage .tour { height: 100%; margin: 0; border-radius: 0; display: block; }
 .tour-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.zone-vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.3s; }
+.zone-vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s; }
 .zone-vignette.red {
   background: radial-gradient(ellipse 62% 62% at 50% 50%, transparent 52%, rgba(215, 0, 0, 0.4) 80%, rgba(160, 0, 0, 0.88) 100%);
   box-shadow: inset 0 0 70px 14px rgba(255, 20, 20, 0.6), inset 0 0 0 4px rgba(255, 40, 40, 0.9);
@@ -214,3 +214,4 @@ textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 
 .voice-open { margin: 2px 0 8px; width: 100%; background: #101828; color: #fff; border: 0; border-radius: 10px; padding: 9px 12px; font-weight: 700; text-align: left; display: grid; gap: 1px; }
 .voice-open span { font-weight: 400; font-size: 12px; color: #c9d3e6; }
+.dot.ring-drone { background: transparent; border: 2.5px solid #ffd60a; box-shadow: 0 0 0 1px #111; }

@@ -552,6 +552,9 @@ export default function App() {
           <span>
             <i className="dot" style={{ background: '#555' }} /> measured inside <i className="dot hollow" /> building only
           </span>
+          <span>
+            <i className="dot ring-drone" /> drone 3D model: zoom in on it to fly around the home
+          </span>
           {threeD && <span className="muted">3D: zoom in and the city rises from Vexcel’s measured heights; each home is a pillar, taller = higher score</span>}
         </div>
         {hexInfo && (

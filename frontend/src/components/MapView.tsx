@@ -347,9 +347,9 @@ export default function MapView(props: Props) {
         id: 'drones-ring',
         type: 'circle',
         source: 'drones',
-        minzoom: 14,
+        minzoom: 11.5, // visible as soon as the map comes up, so you can see which homes open in 3D
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 9, 18, 22],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 11.5, 6, 14, 9, 18, 22],
           'circle-color': 'rgba(0,0,0,0)',
           'circle-stroke-color': '#ffd60a',
           'circle-stroke-width': 2.5,

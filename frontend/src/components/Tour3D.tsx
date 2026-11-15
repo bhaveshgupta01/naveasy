@@ -72,12 +72,21 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
   const live = useRef({ unit, alerts, sound, onFloor, zone })
   live.current = { unit, alerts, sound, onFloor, zone }
   const settle = useRef<number | undefined>(undefined)
+  const pending = useRef<string | null>(null)
 
-  // Move into a worse zone: alert at once. Move into a better one: wait a moment, so the edge of a zone doesn't flicker.
+  // Move into a worse zone: alert at once. Move into a better one: clear the alert almost at once (150 ms, just enough
+  // that standing exactly on an edge doesn't flicker). The camera reports its pose many times a second while you walk
+  // or look around, so the wait must not restart while you stay in the zone it is waiting for (it used to, which kept
+  // the red edge flashing for seconds after you reached green).
   const applyZone = (z: Zone) => {
     const cur = live.current.zone
-    if (z.key === cur.key) return window.clearTimeout(settle.current)
+    if (z.key === cur.key) {
+      pending.current = null
+      return window.clearTimeout(settle.current)
+    }
+    if (pending.current === z.key) return
     const go = () => {
+      pending.current = null
       live.current.zone = z
       setZone(z)
       if (!live.current.alerts || (z.level !== 'red' && z.level !== 'amber')) return
@@ -89,7 +98,10 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
     }
     window.clearTimeout(settle.current)
     if (worse(z.level, cur.level) || cur.level === 'none') go()
-    else settle.current = window.setTimeout(go, 700)
+    else {
+      pending.current = z.key
+      settle.current = window.setTimeout(go, 150)
+    }
   }
 
   const onPose = (pose: Pose) => {

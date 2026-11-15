@@ -442,6 +442,22 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
                             <li key={i}>{r}</li>
                           ))}
                         </ul>
+                        {plan.placements.some((p) => p.why) && (
+                          <>
+                            <h3>Each piece</h3>
+                            <ul className="reasons">
+                              {plan.placements
+                                .filter((p) => p.why)
+                                .map((p) => (
+                                  <li key={p.id}>
+                                    <strong>{p.label}:</strong> {p.why}
+                                    {p.needs?.length ? <span className="muted"> ({p.needs.map((n) => PROFILES.find((x) => x.id === n)?.short ?? n).join(', ')})</span> : null}
+                                    {p.caution ? <span className="error-inline"> {p.caution}</span> : null}
+                                  </li>
+                                ))}
+                            </ul>
+                          </>
+                        )}
                         {plan.wont_fit.length > 0 && (
                           <>
                             <h3>Won’t fit</h3>

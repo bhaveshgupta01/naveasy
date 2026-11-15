@@ -137,7 +137,13 @@ Estimated clear width = scanned opening − 5 cm, because scans look like rough 
 
 - Score: `{ model_id, profiles, score_empty, score_furnished, suggestions: [{ item_id, action: "move"|"remove"|"replace"|"rotate", to?, gain, text }] }`
 - Plan request: `{ target_model_id, profiles, inventory: [{ label, w, d }], preferences: { transfer_side, works_from_home, keep_layout } }`
-- Plan response: `{ target_model_id, profiles, score_before, score_after, placements: [{ item_id, label, room, rect, rotation_deg }], wont_fit: [{ label, reason }], reasons: [] }`
+- Plan response: `{ target_model_id, profiles, score_before, score_after, placements: [{ item_id, label, room, rect, rotation_deg, facing, why, needs, caution?, transfer_side? }], wont_fit: [{ label, reason }], reasons: [] }`.
+  The layout follows each selected need's rules (Technical Design section 8): wheelchair keeps 30 x 48 in beside the bed,
+  30 in in front of what you use, turning circles and 36 in ways through; blind keeps every piece 30 cm off the routes from
+  the front door and against a wall; deaf puts the sofa in view of the front door with tall pieces off that line; older
+  adults get the shortest walk from the bed to the bathroom and a seat near the entry. `why` is one measured sentence per
+  piece naming the need it serves (`needs`); `caution` names a rule no spot could keep; `reasons` has one line per need,
+  checked on the engine's analysis of the furnished home.
 
 ## Relocation
 

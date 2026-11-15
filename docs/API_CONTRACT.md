@@ -19,6 +19,7 @@ The frontend and backend agree on these shapes. The API serves real data built b
 | `GET /map/hexes/{cell}?city` | One cell: scores, minutes to essentials per profile, street measures, `live` |
 | `GET /buildings/{id}?profiles` | Building + `components` (value and why), `building_scores`, `inside`, `units[]` with scores and top problems, `nearest[]`, `checklist[]` |
 | `GET /units/{model_id}/heatmap?profile&furnished&floor&chair_cm` | Floor plan, doors, rooms, furniture, turning circles, paths, problems, checks, scores and one heat grid |
+| `GET /units/{model_id}/walk?profile` | A walk the 3D tour can follow: `{ title, steps: [{ text, x, y, look: [x, y], z?, floor }] }`, from just inside the front door room by room (the venue: entrance to the classroom, across floors) |
 | `POST /units/heatmap` | The same for a custom furniture layout `{ model_id, profile, furniture[] }` |
 | `GET /units/{model_id}/floorplans` | Matterport's own 2D floor plans for any scan, even one without a wall graph: `[{ floor, label, kind: "schematic" or "photo", url }]` |
 | `GET /units/{model_id}/floorplan/{name}` | One of those images (PNG, cached) |
@@ -169,5 +170,5 @@ Response `{ text, ui_actions: [...], state, mode: "local" | "claude" | "deep", s
 
 Each action is one of `set_map_view {center: [lon, lat], zoom, profiles, city}`, `highlight_buildings {ids}`, `open_building {id}`,
 `show_route {building_id, category, profile}`, `open_unit {model_id, profile, problem_id, tab, plan}`, `show_relocation {request}`,
-`open_drone {id}`. Any action may carry `cue`: text from the answer; when the answer is spoken, the action runs as the
+`open_drone {id}`, `draw_route {route, building_id}` (a route from a named origin, such as the venue's walk from the station), `tour_goto {model_id, x, y, look, z}` (move the 3D tour's camera to the scan position nearest a spot, facing `look`; `z` is that floor's height). Any action may carry `cue`: text from the answer; when the answer is spoken, the action runs as the
 sentence containing the cue starts (the map follows a list as it is read out). Without `cue` it runs at once.

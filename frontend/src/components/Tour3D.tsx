@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { API } from '../api'
 import { PROFILES, type Problem, type Profile, type Unit } from '../types'
 import { worse, zoneAt, type Zone } from '../zones'
 import { TourOverlay, type Pose } from './tourOverlay'
@@ -47,9 +48,10 @@ interface Props {
   planned?: boolean // the unit carries a furnishing plan, placed in the scan
   emptyScan?: boolean
   onEmptyScan?: (on: boolean) => void // offered when Matterport has a furniture-removed view of this scan
+  goTo?: { x: number; y: number; look?: [number, number] | null; n: number } | null // the agent walking the tour (plan meters)
 }
 
-export default function Tour3D({ modelId, tourId = modelId, unit, measured = true, profile, onProfile, onFloor, planned, emptyScan, onEmptyScan }: Props) {
+export default function Tour3D({ modelId, tourId = modelId, unit, measured = true, profile, onProfile, onFloor, planned, emptyScan, onEmptyScan, goTo }: Props) {
   const frame = useRef<HTMLIFrameElement>(null)
   const stage = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -235,6 +237,95 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, unit])
 
+  // Stand at the scan position nearest a spot (plan meters) and face a point: how the tour walks itself
+  const moveTo = (x: number, y: number, look?: [number, number] | null): boolean => {
+    const mp = sdk.current
+    const u = live.current.unit
+    if (!mp || !u || !sweeps.current.length) return false
+    const z = u.floor_z ?? 0
+    const t = toSdk(x, y, z + 1.5)
+    const near = sweeps.current
+      .map((s) => ({ s, d: Math.hypot(s.position.x - t.x, s.position.z - t.z) + Math.abs(s.position.y - t.y) * 3 }))
+      .sort((a, b) => a.d - b.d)[0]
+    if (!near) return false
+    const lk = look ? toSdk(look[0], look[1], z) : t
+    const dx = lk.x - near.s.position.x
+    const dz = lk.z - near.s.position.z
+    const yaw = Math.hypot(dx, dz) > 0.2 ? (Math.atan2(-dx, -dz) * 180) / Math.PI : undefined
+    mp.Sweep.moveTo(near.s.sid || near.s.id, {
+      ...(yaw === undefined ? {} : { rotation: { x: -5, y: yaw } }),
+      transition: mp.Sweep.Transition?.FLY ?? 'transition.fly',
+      transitionTime: 1400,
+    }).catch(() => undefined)
+    return true
+  }
+
+  // the agent's walk: each stop arrives as its sentence is spoken; one that comes before the tour is ready waits for it
+  const pendingGo = useRef<typeof goTo>(null)
+  useEffect(() => {
+    if (!goTo) return
+    if (!moveTo(goTo.x, goTo.y, goTo.look)) pendingGo.current = goTo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goTo?.n])
+  useEffect(() => {
+    if (!connected || !pendingGo.current) return
+    const g = pendingGo.current
+    const t = window.setTimeout(() => moveTo(g.x, g.y, g.look) && (pendingGo.current = null), 1200) // let the sweeps load
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected])
+
+  // "Walk me through it": the same walk without the agent, each stop spoken (local Piper, else the browser's voice)
+  const [walkLine, setWalkLine] = useState('')
+  const walkToken = useRef(0)
+  const walkAudio = useRef<HTMLAudioElement | null>(null)
+  const say = (text: string, token: number) =>
+    new Promise<void>((done) => {
+      fetch(`${API}/speech/say`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+        .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('no local voice'))))
+        .then((b) => {
+          if (token !== walkToken.current) return done()
+          const a = new Audio(URL.createObjectURL(b))
+          walkAudio.current = a
+          a.onended = a.onerror = () => done()
+          a.play().catch(() => done())
+        })
+        .catch(() => {
+          const u = new SpeechSynthesisUtterance(text)
+          u.onend = u.onerror = () => done()
+          window.speechSynthesis ? window.speechSynthesis.speak(u) : done()
+        })
+    })
+  const stopWalk = () => {
+    walkToken.current++
+    walkAudio.current?.pause()
+    window.speechSynthesis?.cancel()
+    setWalkLine('')
+  }
+  const walk = async () => {
+    if (walkLine) return stopWalk()
+    const token = ++walkToken.current
+    setWalkLine('Planning the walk…')
+    try {
+      const r = await fetch(`${API}/units/${modelId}/walk?profile=${profile}`)
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? 'no walk')
+      const w = (await r.json()) as { steps: { text: string; x: number | null; y: number | null; look: [number, number] | null }[] }
+      if (mode !== 'mode.inside') await moveMode('INSIDE')
+      for (const s of w.steps) {
+        if (token !== walkToken.current) return
+        if (s.x != null && s.y != null) moveTo(s.x, s.y, s.look)
+        setWalkLine(s.text)
+        await say(s.text, token)
+        await new Promise((d) => window.setTimeout(d, 350))
+      }
+    } catch (e) {
+      setWalkLine(`Can't walk this scan: ${String((e as Error).message ?? e)}`)
+      await new Promise((d) => window.setTimeout(d, 3000))
+    }
+    if (token === walkToken.current) setWalkLine('')
+  }
+  useEffect(() => () => stopWalk(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const flyTo = (p: Problem) => {
     setActive(p.id)
     const mp = sdk.current
@@ -281,6 +372,11 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
             Pointing at: {hoverZone.title}
           </div>
         )}
+        {walkLine && (
+          <div className="walk-caption" aria-live="polite">
+            {walkLine}
+          </div>
+        )}
       </div>
       <div>
         {measured && (
@@ -300,6 +396,11 @@ export default function Tour3D({ modelId, tourId = modelId, unit, measured = tru
         {KEY && (
           <>
             <div className="chips">
+              {measured && (
+                <button className={walkLine ? 'walk-on' : 'walk-btn'} onClick={() => void walk()} disabled={!connected} aria-pressed={!!walkLine}>
+                  {walkLine ? '■ Stop the walk' : '▶ Walk me through it'}
+                </button>
+              )}
               <button onClick={() => moveMode('INSIDE')} aria-pressed={inside}>
                 Walk inside
               </button>

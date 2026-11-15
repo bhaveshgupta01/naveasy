@@ -338,6 +338,8 @@ export default function SpeakDock({ ask, runActions, onChat, chatOpen, startRef 
     setHeard('')
   }, [])
   if (startRef) startRef.current = () => void start()
+  // for scripted demos and checks: send text as if it had been heard (like window.__tour in the 3D tour)
+  ;(window as unknown as { __dock?: unknown }).__dock = { start: () => void start(), hear: (t: string) => void send(t) }
 
   useEffect(() => {
     const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)

@@ -35,6 +35,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [highlighted, setHighlighted] = useState<string[]>([])
   const [openUnit, setOpenUnit] = useState<OpenUnit | null>(null)
+  const [tourGoto, setTourGoto] = useState<{ x: number; y: number; look?: [number, number] | null; n: number } | null>(null) // the agent walking the 3D tour
   const [route, setRoute] = useState<Route | null>(null)
   const [autoRoute, setAutoRoute] = useState<{ category: Category; profile: Profile } | null>(null)
   const [target, setTarget] = useState<MapTarget | null>(null)
@@ -145,6 +146,8 @@ export default function App() {
         else if (a.type === 'show_route') {
           setSelectedId(a.building_id)
           setAutoRoute({ category: a.category, profile: a.profile })
+        } else if (a.type === 'tour_goto') {
+          setTourGoto({ x: a.x, y: a.y, look: a.look ?? null, n: Date.now() })
         } else if (a.type === 'draw_route') {
           if (a.building_id) setSelectedId(a.building_id)
           setAutoRoute(null)
@@ -590,6 +593,7 @@ export default function App() {
           initialTab={openUnit.tab}
           initialPlan={openUnit.plan}
           autoPlanFrom={openUnit.autoPlanFrom}
+          tourGoto={tourGoto}
           meta={meta}
           onClose={() => setOpenUnit(null)}
         />

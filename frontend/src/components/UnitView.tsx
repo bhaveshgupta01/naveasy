@@ -38,11 +38,12 @@ interface Props {
   initialTab?: 'heat' | 'score' | 'plan' | 'tour' | 'floor'
   initialPlan?: FurnishPlan
   autoPlanFrom?: string
+  tourGoto?: { x: number; y: number; look?: [number, number] | null; n: number } | null // the agent walking the 3D tour
   meta: Meta | null
   onClose: () => void
 }
 
-export default function UnitView({ modelId, profiles, initialProfile, initialTab, initialPlan, autoPlanFrom, meta, onClose }: Props) {
+export default function UnitView({ modelId, profiles, initialProfile, initialTab, initialPlan, autoPlanFrom, tourGoto, meta, onClose }: Props) {
   const [profile, setProfile] = useState<Profile>(initialProfile ?? profiles[0] ?? 'wheelchair')
   const [furnished, setFurnished] = useState(false)
   const [floor, setFloor] = useState<number | undefined>(undefined)
@@ -200,6 +201,7 @@ export default function UnitView({ modelId, profiles, initialProfile, initialTab
             planned={!!planUnit}
             emptyScan={emptyScan}
             onEmptyScan={unit?.defurnished_id ? setEmptyScan : undefined}
+            goTo={tourGoto}
           />
         ) : (
           ok && (

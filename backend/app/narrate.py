@@ -666,3 +666,174 @@ def speakable(text: str) -> str:
     text = re.sub(r"\b1 (meters|minutes|steps|inches|feet)\b", lambda m: "1 " + m.group(1)[:-1], text)
     return text
 
+
+
+# ---------------------------------------------------------------- the walk: a tour the 3D view can follow
+
+FIXTURE_WORD = {"counter": "a counter", "island": "a kitchen island", "vanity": "a vanity", "toilet": "the toilet", "tub": "the tub",
+                "desk": "a desk", "bench": "a bench", "fixed seating": "fixed seating", "table": "a table"}
+
+
+def _grid_steps(unit: dict):
+    """Walking distance over the floor (meters, 4-neighbour BFS on the heat grid) from a point, or None without a grid."""
+    from collections import deque
+    h = unit.get("heat") or {}
+    vals = h.get("values")
+    if not vals:
+        return None
+    cell, (x0, y0) = h["cell_m"], h["origin"]
+    ny, nx = len(vals), len(vals[0])
+    rc = lambda x, y: (min(max(int((y - y0) / cell), 0), ny - 1), min(max(int((x - x0) / cell), 0), nx - 1))  # noqa: E731
+
+    def nearest_floor(r, c):
+        if vals[r][c] >= 2:
+            return r, c
+        for k in range(1, 30):
+            for dr in range(-k, k + 1):
+                for dc in (-k, k):
+                    for rr, cc in ((r + dr, c + dc), (r + dc, c + dr)):
+                        if 0 <= rr < ny and 0 <= cc < nx and vals[rr][cc] >= 2:
+                            return rr, cc
+        return None
+
+    def from_point(x, y):
+        s = nearest_floor(*rc(x, y))
+        dist = {}
+        if not s:
+            return lambda *_: None
+        dist[s] = 0
+        q = deque([s])
+        while q:
+            r, c = q.popleft()
+            for rr, cc in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
+                if 0 <= rr < ny and 0 <= cc < nx and vals[rr][cc] >= 2 and (rr, cc) not in dist:
+                    dist[(rr, cc)] = dist[(r, c)] + 1
+                    q.append((rr, cc))
+
+        def to(x2, y2):
+            t = nearest_floor(*rc(x2, y2))
+            return dist[t] * cell * 1.1 if t in dist else None     # 4-neighbour steps run a little long on diagonals; 1.1 evens it
+        return to
+    return from_point
+
+
+def walk_tour(unit: dict, profile: str = "wheelchair", profiles: list[str] | None = None) -> dict | None:
+    """A walk through one floor that a 3D view can follow: stand just inside the front door, then go room by room in
+    walking order. Each stop has a sentence (where the room is from the way you are facing, its size, the built-ins and
+    windows on your left or right, its problems) and the point to stand on and look toward. Built from measured geometry
+    only; None when the scan has no entry door or rooms."""
+    from shapely.geometry import Point, Polygon
+    profiles = profiles or [profile]
+    if not unit.get("rooms"):
+        return None
+    entry = next((d for d in unit.get("doors", []) if d.get("entry")), None)
+    if not entry:
+        return None
+    rooms = [r for r in unit["rooms"] if r["type"] not in ("Closet", "Pantry", "Void") and r["area_m2"] >= (2.0 if r["type"] != "Other" else 6.0)]
+    polys = {r["id"]: Polygon(r["polygon"]).buffer(0) for r in unit["rooms"] if len(r["polygon"]) >= 3}
+    label = lambda r: "space the scan doesn't name" if r["type"] == "Other" else r["type"].lower()  # noqa: E731
+    # the room you step into: the one holding the spot just inside the door (try both sides of the doorway)
+    a = math.radians(entry["angle_deg"])
+    first, n = None, (-math.sin(a), math.cos(a))
+    for sign in (1, -1):
+        cand = (entry["x"] + sign * n[0] * 0.9, entry["y"] + sign * n[1] * 0.9)
+        hit = next((r for r in unit["rooms"] if r["id"] in polys and polys[r["id"]].contains(Point(cand))), None)
+        if hit:
+            first, n = hit, (sign * n[0], sign * n[1])
+            break
+    if first is None:
+        first = min(rooms, key=lambda r: math.dist(r["centroid"], (entry["x"], entry["y"])))
+        n = _inward(entry, first)
+    here = (entry["x"] + n[0] * 0.9, entry["y"] + n[1] * 0.9)
+    if first not in rooms:
+        rooms = [first] + rooms
+    heading = n
+    walker = _grid_steps(unit)
+    floor = unit.get("floor", 0)
+
+    def belongs(p, r):
+        """A door's problem belongs to the room the door is named for ("Bedroom door"); anything else to the room it is in."""
+        poly = polys.get(r["id"])
+        if not poly:
+            return False
+        if p["kind"] in ("narrow_door", "threshold"):
+            return p["text"].lower().startswith(r["type"].lower()) and poly.buffer(0.3).contains(Point(p["x"], p["y"]))
+        return poly.contains(Point(p["x"], p["y"]))
+
+    def stand_point(r):
+        c = r["centroid"]
+        return (c[0], c[1])
+
+    def size(r):
+        xs, ys = [p[0] for p in r["polygon"]], [p[1] for p in r["polygon"]]
+        w, d = max(xs) - min(xs), max(ys) - min(ys)
+        return f"about {max(w, d) * 3.281:.0f} by {min(w, d) * 3.281:.0f} feet"
+
+    def around(r, at, facing):
+        bits = []
+        for f in unit.get("fixture_items") or []:
+            if f.get("room") != r["id"] or f.get("kind") in ("toilet tank", "shelf or ledge", "raised floor or platform"):
+                continue
+            where = _relative(facing, (f["x"] - at[0], f["y"] - at[1]))
+            what = FIXTURE_WORD.get(f["kind"], f"a {f['kind']}")
+            hi = f" about {f['height_in']:.0f} inches high" if f.get("height_in") and f["kind"] in ("counter", "island", "vanity", "desk", "table") else ""
+            bits.append(f"{where}, {what}{hi}")
+        wins = [w for w in unit.get("windows", []) if _near_room(w, r)]
+        if wins:
+            sides = list(dict.fromkeys(_relative(facing, (w["x"] - at[0], w["y"] - at[1])) for w in wins))
+            bits.append(f"{_join(sides)}, {'a window' if len(wins) == 1 else 'windows'}")
+        return bits[:4]
+
+    steps = []
+    door_txt = f"the front door, about {entry['est_clear_in']:.0f} inches wide" if entry.get("est_clear_in") else "the front door"
+    steps.append({"text": f"We start at {door_txt}, facing in. You're in the {label(first)}.",
+                  "x": round(here[0], 2), "y": round(here[1], 2), "look": [round(here[0] + n[0] * 2, 2), round(here[1] + n[1] * 2, 2)], "floor": floor})
+    seen_types: dict[str, int] = {}
+    todo = [r for r in rooms]
+    told_probs: set = set()
+    while todo:
+        dist_from = walker(*here) if walker else None
+
+        def cost(r):
+            d = dist_from(*stand_point(r)) if dist_from else None
+            return d if d is not None else math.dist(here, stand_point(r)) * 1.3
+        r = min(todo, key=cost)
+        todo.remove(r)
+        to = stand_point(r)
+        meters = cost(r)
+        vec = (to[0] - here[0], to[1] - here[1])
+        seen_types[r["type"]] = seen_types.get(r["type"], 0) + 1
+        name = ("the " if seen_types[r["type"]] == 1 else "a second " if seen_types[r["type"]] == 2 else "another ") + label(r)
+        if r["id"] == first["id"] and math.hypot(*vec) < 1.2:
+            lead = f"Around you, {name}, {size(r)}."
+        elif r["id"] == first["id"]:
+            lead = f"{steps_word(meters)} {_relative(heading, vec)}, the middle of {name}, {size(r)}."
+        else:
+            lead = f"{steps_word(meters)} {_relative(heading, vec)}, {name}, {size(r)}."
+        if math.hypot(*vec) > 0.3:
+            heading = (vec[0] / math.hypot(*vec), vec[1] / math.hypot(*vec))
+        here = to
+        # on arrival, turn to the most open view: the room's farthest corner (so the 3D camera doesn't stare at a wall);
+        # left and right below are said from that same facing, so the words match the screen
+        far = max(r["polygon"], key=lambda q: math.dist(q, here), default=None)
+        if far and math.dist(far, here) > 1.0:
+            turn = (far[0] - here[0], far[1] - here[1])
+            heading = (turn[0] / math.hypot(*turn), turn[1] / math.hypot(*turn))
+        bits = around(r, here, heading)
+        text = lead + (" " + ". ".join(b[0].upper() + b[1:] for b in bits) + "." if bits else "")
+        probs = [p for p in unit.get("all_problems") or unit.get("problems") or []
+                 if p["profile"] in profiles and p["severity"] != "low" and p.get("floor", floor) == floor and belongs(p, r) and p["id"] not in told_probs]
+        if probs:
+            told_probs.update(p["id"] for p in probs[:2])
+            text += " Watch out: " + " ".join(_say_in(p["text"]) for p in probs[:2])
+        steps.append({"text": speakable(text), "x": round(here[0], 2), "y": round(here[1], 2),
+                      "look": [round(here[0] + heading[0] * 2, 2), round(here[1] + heading[1] * 2, 2)], "floor": floor})
+    rest = [p for p in unit.get("problems") or [] if p["profile"] in profiles and p["severity"] == "high" and p["id"] not in told_probs]
+    end = "That's the whole floor." + (f" One more thing to know: {_say_in(rest[0]['text'])}" if rest else "")
+    steps.append({"text": speakable(end), "x": None, "y": None, "look": None, "floor": floor})
+    return {"title": (unit.get("caption") or "This home"), "steps": steps}
+
+
+def steps_word(m: float) -> str:
+    s = steps(m)
+    return s[0].upper() + s[1:]

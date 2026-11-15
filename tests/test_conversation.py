@@ -175,3 +175,18 @@ def test_the_venue_answers_from_its_measurements(venue_stub):
 
 def test_units_are_spoken_in_words():
     assert narrate.speakable("about 1 meters, a step of 14 cm, 44 m of slope, 64 m2") == "about 1 meter, a step of 14 centimeters, 44 meters of slope, 64 square meters"
+
+
+def test_the_3d_tour_walks_along_with_the_voice(offline, monkeypatch):
+    walk = {"steps": [{"text": "We start at the front door, about 36 inches wide, facing in.", "x": 0.9, "y": 3.0, "look": [2.9, 3.0]},
+                      {"text": "About 4 steps ahead, the bedroom, about 11 by 10 feet.", "x": 6.5, "y": 4.2, "look": [8.0, 6.0]},
+                      {"text": "That's the whole floor.", "x": None, "y": None, "look": None}]}
+    monkeypatch.setattr(narrate, "walk_tour", lambda *a, **k: walk)
+    out, st = _talk(["__start__", "I'm blind", "any", "near Midtown", "one", "yes"])
+    r = out[-1]
+    assert r["text"].startswith("We start at the front door") and "furniture" in r["text"]
+    opened = next(a for a in r["ui_actions"] if a["type"] == "open_unit")
+    assert opened["tab"] == "tour"
+    moves = [a for a in r["ui_actions"] if a["type"] == "tour_goto"]
+    assert [(m["x"], m["y"]) for m in moves] == [(0.9, 3.0), (6.5, 4.2)]           # no move for the closing line
+    assert all(m["cue"].lower() in r["text"].lower() for m in moves)               # each move runs as its sentence is spoken

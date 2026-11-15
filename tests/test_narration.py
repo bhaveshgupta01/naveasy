@@ -71,3 +71,21 @@ def test_relative_directions():
     assert narrate._relative((0, 1), (-5, 0)) == "to your left"
     assert narrate._relative((0, 1), (5, 0)) == "to your right"
     assert narrate._relative((0, 1), (0, -5)) == "behind you"
+
+
+def test_walk_starts_inside_the_front_door_and_visits_every_room(monkeypatch):
+    w = narrate.walk_tour(_unit(monkeypatch, bath_door=0.95), "wheelchair")
+    steps = w["steps"]
+    assert "front door" in steps[0]["text"] and "living room" in steps[0]["text"]
+    assert abs(steps[0]["x"] - 0.9) < 0.2 and abs(steps[0]["y"] - 3.0) < 0.2       # just inside the west-wall entry, facing east
+    assert steps[0]["look"][0] > steps[0]["x"]
+    said = " ".join(s["text"] for s in steps)
+    assert "bedroom" in said and "bathroom" in said and steps[-1]["text"].startswith("That's the whole floor")
+    assert all(s["x"] is not None and s["look"] for s in steps[:-1])
+
+
+def test_walk_warns_in_the_room_a_problem_belongs_to(monkeypatch):
+    steps = narrate.walk_tour(_unit(monkeypatch, bath_door=0.70), "wheelchair")["steps"]
+    bath = next(s["text"] for s in steps if "the bathroom" in s["text"])
+    assert "Bathroom door" in bath and "26 inches clear" in bath
+    assert not any("Bathroom door" in s["text"] for s in steps if "the bedroom" in s["text"])

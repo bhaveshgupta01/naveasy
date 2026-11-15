@@ -397,6 +397,18 @@ def unit_floorplan_image(model_id: str, name: str):
     return Response(path.read_bytes(), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
+@app.get("/units/{model_id}/walk")
+def unit_walk(model_id: str, profile: Profile = "wheelchair"):
+    """A walk through the entry floor that the 3D tour can follow: stops (where to stand, where to look) with a spoken
+    sentence each, built from the measured geometry (backend/app/narrate.walk_tour)."""
+    from backend.app import narrate
+    u = unit_heatmap(model_id, profile)
+    w = narrate.walk_tour(u, profile) if u.get("has_graph") else None
+    if not w:
+        raise HTTPException(404, "no measured entry door or rooms in this scan, so there is no walk to follow")
+    return w
+
+
 @app.get("/units/{model_id}/summary")
 def unit_summary(model_id: str):
     s = units_index().get(model_id)

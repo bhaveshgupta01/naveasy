@@ -437,12 +437,22 @@ def _guide(t: str, low: str, cmd: dict, st: dict, actions: list) -> str | None:
             u = api.unit_heatmap(st["unit"], st["profiles"][0])
             n = narrate.unit_narration(u, st["profiles"][0], st["profiles"])
             sec = n["sections"]
-            keys = (["layout"] + (["paths"] if "blind" in st["profiles"] else []) + ["rooms", "fixtures"]
-                    + (["doors"] if st.get("general") or {"wheelchair", "older"} & set(st["profiles"]) else []) + ["problems"])
-            actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0]})
             st["guide"] = "furniture"
-            return (narrate._say_in(" ".join(sec[k] for k in keys if k in sec)) + " Would you like me to plan where your furniture goes? "
-                    "Tell me what you own, for example a queen bed, a desk and a sofa. Or say no.")
+            ask = (" Would you like me to plan where your furniture goes? "
+                   "Tell me what you own, for example a queen bed, a desk and a sofa. Or say no.")
+            doors = sec.get("doors") if st.get("general") or {"wheelchair", "older"} & set(st["profiles"]) else None
+            walk = narrate.walk_tour(u, st["profiles"][0], st["profiles"])
+            if walk:
+                # the 3D tour walks along with the voice: each stop's camera move is cued to its sentence
+                actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0], "tab": "tour"})
+                for stop in walk["steps"]:
+                    if stop["x"] is not None:
+                        actions.append({"type": "tour_goto", "model_id": st["unit"], "x": stop["x"], "y": stop["y"], "look": stop["look"],
+                                        "cue": " ".join(stop["text"].split()[:7])})
+                return " ".join(x["text"] for x in walk["steps"]) + (" " + doors if doors else "") + ask
+            keys = (["layout"] + (["paths"] if "blind" in st["profiles"] else []) + ["rooms", "fixtures"] + (["doors"] if doors else []) + ["problems"])
+            actions.append({"type": "open_unit", "model_id": st["unit"], "profile": st["profiles"][0]})
+            return narrate._say_in(" ".join(sec[k] for k in keys if k in sec)) + ask
         if re.search(NO, low):
             st["guide"] = "furniture"
             return "Okay. Would you like me to plan where your furniture goes? Tell me what you own, for example a queen bed, a desk and a sofa. Or say no."

@@ -6,9 +6,10 @@ def _v(i, x, y):
     return {"id": f"v{i}", "position": {"x": x, "y": y}}
 
 
-def make_model(bath_door=0.70, entry=0.95, bed_door=0.90, threshold=0.0):
-    """A 8 x 6 m flat: living room (left 5 x 6), bedroom (top right 3 x 3.5), bathroom (bottom right 3 x 2.5)."""
-    pts = [(0, 0), (5, 0), (8, 0), (8, 2.5), (8, 6), (5, 6), (0, 6), (5, 2.5)]
+def make_model(bath_door=0.70, entry=0.95, bed_door=0.90, threshold=0.0, width=8.0):
+    """A 8 x 6 m flat: living room (left 5 x 6), bedroom (top right 3 x 3.5), bathroom (bottom right 3 x 2.5).
+    A larger width widens the bedroom and bathroom eastward."""
+    pts = [(0, 0), (5, 0), (width, 0), (width, 2.5), (width, 6), (5, 6), (0, 6), (5, 2.5)]
     V = [_v(i, x, y) for i, (x, y) in enumerate(pts)]
 
     def edge(i, a, b, openings=()):

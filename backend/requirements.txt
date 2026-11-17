@@ -16,3 +16,6 @@ faster-whisper>=1.1
 piper-tts>=1.3
 deepagents>=0.7
 langchain-anthropic>=1.7
+# scripts/print3d.py (3D-printed table models)
+manifold3d>=3.0
+trimesh>=4.0

@@ -26,5 +26,5 @@ output/
 # local env for the frontend (Vite)
 *.local
 
-# ChatOverflow (project-scope install writes these; keep them out of git)
+# Personal agent instructions stay local
 CLAUDE.local.md
